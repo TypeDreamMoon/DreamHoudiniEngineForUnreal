@@ -2262,23 +2262,19 @@ FHoudiniEngineBakeUtils::BakeInstancerOutputToActors_IAC(
 
 		    FTransform CurrentTransform = CurrentInstancedActor->GetTransform();
 
-			// AActor* NewActor = FHoudiniInstanceTranslator::SpawnInstanceActor(CurrentTransform, DesiredLevel, InIAC, FName(NewNameStr));
-			AActor* NewActor = FHoudiniInstanceTranslator::SpawnInstanceActor(CurrentTransform, DesiredLevel, InIAC);
-			if (!IsValid(NewActor))
-				continue;
+		    AActor* NewActor = FHoudiniInstanceTranslator::SpawnInstanceActor(CurrentTransform, DesiredLevel, InIAC, FName(NewNameStr));
+		    if (!IsValid(NewActor))
+			   continue;
 
 		    // Explicitly set the actor label as there appears to be a bug in AActor::GetActorLabel() which sets the first
 		    // duplicate actor name to "name-1" (minus one) instead of leaving off the 0.
 		    NewActor->SetActorLabel(NewNameStr);
 
 			// Copy properties from the Instanced object, but only for actors.
-			const auto CopyOptions = static_cast<EditorUtilities::ECopyOptions::Type>(
-					EditorUtilities::ECopyOptions::OnlyCopyEditOrInterpProperties |
-					EditorUtilities::ECopyOptions::PropagateChangesToArchetypeInstances | 
-					EditorUtilities::ECopyOptions::CallPostEditChangeProperty |
-					EditorUtilities::ECopyOptions::CallPostEditMove);
+			const auto CopyOptions = (EditorUtilities::ECopyOptions::Type)
+					(EditorUtilities::ECopyOptions::OnlyCopyEditOrInterpProperties |
+						EditorUtilities::ECopyOptions::PropagateChangesToArchetypeInstances);
 
-			// BUG: CopyActorProperties are not copying properties for components (at least on Blueprint type actors).
 			EditorUtilities::CopyActorProperties(CurrentInstancedActor, NewActor, CopyOptions);
 
 			// TODO: Copy over component properties!
