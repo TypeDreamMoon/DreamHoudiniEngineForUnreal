@@ -91,7 +91,6 @@ SHoudiniNodeSyncPanel::Construct( const FArguments& InArgs )
 	TSharedPtr<SCheckBox> CheckBoxUseOutputNodes;
 	TSharedPtr<SCheckBox> CheckBoxFetchToWorld;
 	TSharedPtr<SCheckBox> CheckBoxReplaceExisting;
-	TSharedPtr<SCheckBox> CheckBoxAutoBake;
 
 	// Get the session status
 	auto GetSessionSyncStatusAndColor = [](FString& OutStatus, FLinearColor& OutStatusColor)
@@ -120,11 +119,57 @@ SHoudiniNodeSyncPanel::Construct( const FArguments& InArgs )
 		.Orientation(Orient_Vertical)
 		+ SScrollBox::Slot()
 		[
-			//------------------------------------------------------------------------------------------
-			// Session status
-			//------------------------------------------------------------------------------------------
-			SNew(SVerticalBox)
-			+ SVerticalBox::Slot()
+			SNew(SHorizontalBox)
+			+ SHorizontalBox::Slot()
+			.FillWidth(1.0f)
+			.Padding(2.0f, 0.0f)
+			.VAlign(VAlign_Top)
+			[
+				SNew(STextBlock)
+				.Justification(ETextJustify::Left)
+				.Text_Lambda([GetSessionSyncStatusAndColor]()
+				{
+					FString StatusString;
+					FLinearColor StatusColor;
+					GetSessionSyncStatusAndColor(StatusString, StatusColor);
+					return FText::FromString(StatusString);
+				})
+				.ColorAndOpacity_Lambda([GetSessionSyncStatusAndColor]()
+				{
+					FString StatusString;
+					FLinearColor StatusColor;
+					GetSessionSyncStatusAndColor(StatusString, StatusColor);
+					return FSlateColor(StatusColor);
+				})
+			]			
+		]
+
+		//------------------------------------------------------------------------------------------
+		// FETCH from Houdini
+		//------------------------------------------------------------------------------------------
+		+ SVerticalBox::Slot()
+		.HAlign(HAlign_Left)
+		.AutoHeight()
+		.Padding(10.0, 20.0, 0.0, 15.0)
+		[
+			SNew(SBox)
+			.HAlign(HAlign_Center)
+			.VAlign(VAlign_Top)
+			[
+				SNew(STextBlock)
+				.Font(BoldFontStyle)
+				.Text(LOCTEXT("FetchLabel", "FETCH from Houdini"))
+			]
+		]
+
+		// HOUDINI NODE PATH
+		+ SVerticalBox::Slot()
+		.HAlign(HAlign_Left)
+		.AutoHeight()
+		.Padding(10.0f, 0.0, 0.0, 0.0f)
+		[
+			SNew(SHorizontalBox)
+			+ SHorizontalBox::Slot()
 			.HAlign(HAlign_Left)
 			.Padding(15.0, 0.0, 0.0, 0.0)
 			.AutoHeight()
