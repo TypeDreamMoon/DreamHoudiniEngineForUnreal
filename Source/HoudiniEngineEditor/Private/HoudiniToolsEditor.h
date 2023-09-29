@@ -88,11 +88,6 @@ public:
 
 	// Get the path of the houdini asset / preset relative to its owning package. 
 	static bool ResolveHoudiniAssetRelativePath(const UObject* Object, FString& OutPath);
-	
-	// Get the path of the houdini asset / preset relative to its owning package. This version doesn't
-	// search for a PackageAsset from the given object, instead it assumes that the given package asset is the
-	// owner of AssetObject. This is to save us from searching for the owning package if we already have it.
-	static bool ResolveHoudiniAssetRelativePath(const UObject* AssetObject, const UHoudiniToolsPackageAsset* OwningPackageAsset, FString& OutPath);
 
 	static FAssetData GetAssetDataByObject(const UObject* AssetObject);
 	
@@ -171,10 +166,10 @@ public:
 
 	// Populate FHoudiniTool from HoudiniAsset.
 	void PopulateHoudiniTool(const TSharedPtr<FHoudiniTool>& HoudiniTool,
-	                                const UHoudiniAsset* InHoudiniAsset,
-	                                const UHoudiniPreset* InHoudiniPreset,
-	                                const UHoudiniToolsPackageAsset* InToolsPackage,
-	                                bool bIgnoreToolData = false);
+							 const UHoudiniAsset* InHoudiniAsset,
+							 const UHoudiniPreset* InHoudiniPreset,
+							 const UHoudiniToolsPackageAsset* InToolsPackage,
+							 bool bIgnoreToolData = false);
 
 	/**
 	 * Rebuild the internal list of HoudiniTools
@@ -294,7 +289,6 @@ public:
 	// Add the tool to the specified user category. If the category does not exist, it will be created.
 	static void AddToolToUserCategory(const UObject* Object, const FString& CategoryName);
 	static void RemoveToolFromUserCategory(const UObject* Object, const FString& CategoryName);
-	static bool UserCategoryContainsTool(const FString& CategoryName, const UObject* AssetObject, const UHoudiniToolsPackageAsset* PackageAsset);
 
 	// Get a list of user categories
 	static void GetUserCategoriesList(TArray<FString>& OutCategories);
@@ -336,6 +330,28 @@ public:
 
 	// Apply the given preset to the currently selected actors. Optionally reselecting them to update viewport drawings.
 	static void ApplyPresetToSelectedHoudiniAssetActors(const UHoudiniPreset* Preset, bool bReselectSelectedActors=true);
+
+	// --------------------------------
+	// Editors
+	// --------------------------------
+	
+	static void LaunchHoudiniToolPropertyEditor(const TSharedPtr<FHoudiniTool> HoudiniTool);
+	
+	static TSharedRef<SWindow> CreateFloatingDetailsView(
+		TArray<UObject*>& InObjects,
+		FName InViewIdentifier,
+		const FVector2D InClientSize=FVector2D(400,550),
+		const TFunction<void(TArray<UObject*> /*InObjects*/)> OnSaveClickedFn = nullptr
+		);
+
+protected:
+
+	// Save the settings from the HoudiniTool Property Editor to a HoudiniAsset
+	static void HandleHoudiniAssetPropertyEditorSaveClicked(TSharedPtr<FHoudiniTool> ToolData, TArray<UObject *>& InObjects);
+	// Save the settings from the HoudiniTool Property Editor to a HoudiniPreset
+	static void HandleHoudiniPresetPropertyEditorSaveClicked(TSharedPtr<FHoudiniTool> ToolData, TArray<UObject *>& InObjects);
+
+public:
 
 	// --------------------------------
 	// Editors

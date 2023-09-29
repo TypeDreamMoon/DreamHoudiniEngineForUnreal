@@ -178,7 +178,6 @@ public:
 		: _ShowEmptyCategory(true)
 		, _ShowHoudiniAssets(true)
 		, _ShowPresets(true)
-		, _ShowHiddenTools(true)
 		, _ViewMode(EHoudiniToolsViewMode::TileView)
 		, _IsVisible(true)
 	{}
@@ -194,7 +193,6 @@ public:
 	SLATE_ATTRIBUTE( bool, ShowEmptyCategory )
 	SLATE_ATTRIBUTE( bool, ShowHoudiniAssets )
 	SLATE_ATTRIBUTE( bool, ShowPresets )
-	SLATE_ATTRIBUTE( bool, ShowHiddenTools )
 	SLATE_ATTRIBUTE( EHoudiniToolCategoryType, CategoryType )
 	SLATE_ATTRIBUTE( TSharedPtr<FHoudiniToolList>, HoudiniToolsItemSource )
 	SLATE_ATTRIBUTE( EHoudiniToolsViewMode, ViewMode )
@@ -234,7 +232,6 @@ protected:
 	TAttribute<bool> ShowEmptyCategory;
 	TAttribute<bool> ShowHoudiniAssets;
 	TAttribute<bool> ShowPresets;
-	TAttribute<bool> ShowHiddenTools;
 	TAttribute<bool> IsVisible;
 	TAttribute<FOnContextMenuOpening> ToolContextMenuOpening;
 	TAttribute<FOnContextMenuOpening> CategoryContextMenuOpening;
@@ -246,10 +243,6 @@ protected:
 	// may be removed in HoudiniTools but we don't want this widget to crash if that happens.
 	TSharedPtr<FHoudiniToolList> SourceEntries;
 	TArray< TSharedPtr<FHoudiniTool> > VisibleEntries;
-
-	// Use ECategoryContentType to set this switcher's index.
-	TSharedPtr<SWidgetSwitcher> CategoryContentSwitcher;
-	float TextWrapWidth;
 };
 
 
