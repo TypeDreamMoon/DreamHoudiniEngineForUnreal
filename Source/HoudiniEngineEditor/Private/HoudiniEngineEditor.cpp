@@ -426,46 +426,11 @@ FHoudiniEngineEditor::RegisterEditorTabs()
 {
 	const IWorkspaceMenuStructure& MenuStructure = WorkspaceMenu::GetMenuStructure();
 
-	FLevelEditorModule& LevelEditorModule = FModuleManager::GetModuleChecked<FLevelEditorModule>( TEXT("LevelEditor") );
-
-	// If we have a valid LevelEditor tab manager, register now, just in case the tab manager is already active.
-	// Not sure whether this case ever occurs, but if it does it may cause issues with RegisterLayoutExtension events.
-	const TSharedPtr<FTabManager> LevelEditorTabManager = LevelEditorModule.GetLevelEditorTabManager();
-	if (LevelEditorTabManager.IsValid())
-	{
-		RegisterLevelEditorTabs(LevelEditorTabManager);
-	}
-	
-	// Be sure to also register during OnRegisterTabs() events, since it will be called whenever the LevelEditor tab manager changes.
-	OnLevelEditorRegisterTabsHandle = LevelEditorModule.OnRegisterTabs().AddRaw(this, &FHoudiniEngineEditor::RegisterLevelEditorTabs);
-	
-	//FGlobalTabmanager::Get()->RegisterTabSpawner(NodeSyncTabName, FOnSpawnTab::CreateRaw(this, &FHoudiniEngineEditor::OnSpawnNodeSyncTab))
-	//	.SetDisplayName(LOCTEXT("FNodeSyncTitleTitle", "Houdini Node Sync"))
-	//	.SetTooltipText(LOCTEXT("FNodeSyncTitleTitleTooltip", "Houdini Node Sync"))
-	//	.SetMenuType(ETabSpawnerMenuType::Hidden)
-	//	.SetGroup(MenuStructure.GetLevelEditorCategory());
-
-	// FGlobalTabmanager::Get()->RegisterTabSpawner(HoudiniToolsTabName, FOnSpawnTab::CreateRaw(this, &FHoudiniEngineEditor::OnSpawnHoudiniToolsTab))
-	// 	.SetDisplayName(LOCTEXT("FHoudiniToolsTitle", "Houdini Tools"))
-	// 	.SetTooltipText(LOCTEXT("FHoudiniToolsTitleTooltip", "A shelf containing Houdini Digital Assets"))
-	// 	.SetMenuType(ETabSpawnerMenuType::Hidden)
-	// 	.SetGroup(MenuStructure.GetLevelEditorCategory());
-}
-
-void
-FHoudiniEngineEditor::UnRegisterEditorTabs()
-{
-	//FGlobalTabmanager::Get()->UnregisterTabSpawner(NodeSyncTabName);
-
-	FLevelEditorModule& LevelEditorModule = FModuleManager::GetModuleChecked<FLevelEditorModule>( TEXT("LevelEditor") );
-	const TSharedPtr<FTabManager> LevelEditorTabManager = LevelEditorModule.GetLevelEditorTabManager();
-	if (LevelEditorTabManager.IsValid())
-	{
-		LevelEditorTabManager->UnregisterTabSpawner(HoudiniToolsTabName);
-		LevelEditorTabManager->UnregisterTabSpawner(NodeSyncTabName);
-	}
-	LevelEditorModule.OnRegisterTabs().Remove(OnLevelEditorRegisterTabsHandle);
-}
+	FGlobalTabmanager::Get()->RegisterTabSpawner(NodeSyncTabName, FOnSpawnTab::CreateRaw(this, &FHoudiniEngineEditor::OnSpawnNodeSyncTab))
+		.SetDisplayName(LOCTEXT("FNodeSyncTitleTitle", "Houdini Node Sync"))
+		.SetTooltipText(LOCTEXT("FNodeSyncTitleTitleTooltip", "Houdini Node Sync"))
+		.SetMenuType(ETabSpawnerMenuType::Hidden)
+		.SetGroup(MenuStructure.GetLevelEditorCategory());
 
 void
 FHoudiniEngineEditor::RegisterLevelEditorTabs(TSharedPtr<FTabManager> LevelTabManager)
@@ -482,7 +447,13 @@ FHoudiniEngineEditor::RegisterLevelEditorTabs(TSharedPtr<FTabManager> LevelTabMa
 		.SetMenuType(ETabSpawnerMenuType::Hidden)
 		.SetGroup(MenuStructure.GetLevelEditorCategory());
 
-	LevelTabManager->RegisterTabSpawner(NodeSyncTabName, FOnSpawnTab::CreateRaw(this, &FHoudiniEngineEditor::OnSpawnNodeSyncTab))
+	/*
+	const IWorkspaceMenuStructure& MenuStructure = WorkspaceMenu::GetMenuStructure();
+
+	FLevelEditorModule& LevelEditorModule = FModuleManager::GetModuleChecked<FLevelEditorModule>(TEXT("LevelEditor"));
+	TSharedPtr<FTabManager> LevelEditorTabManager = LevelEditorModule.GetLevelEditorTabManager();
+
+	LevelEditorTabManager->RegisterTabSpawner(NodeSyncTabName, FOnSpawnTab::CreateRaw(this, &FHoudiniEngineEditor::OnSpawnNodeSyncTab))
 		.SetDisplayName(LOCTEXT("FNodeSyncTitleTitle", "Houdini Node Sync"))
 		.SetTooltipText(LOCTEXT("FNodeSyncTitleTitleTooltip", "Houdini Node Sync"))
 		.SetMenuType(ETabSpawnerMenuType::Hidden)

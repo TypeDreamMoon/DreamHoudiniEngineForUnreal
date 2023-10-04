@@ -119,57 +119,11 @@ SHoudiniNodeSyncPanel::Construct( const FArguments& InArgs )
 		.Orientation(Orient_Vertical)
 		+ SScrollBox::Slot()
 		[
-			SNew(SHorizontalBox)
-			+ SHorizontalBox::Slot()
-			.FillWidth(1.0f)
-			.Padding(2.0f, 0.0f)
-			.VAlign(VAlign_Top)
-			[
-				SNew(STextBlock)
-				.Justification(ETextJustify::Left)
-				.Text_Lambda([GetSessionSyncStatusAndColor]()
-				{
-					FString StatusString;
-					FLinearColor StatusColor;
-					GetSessionSyncStatusAndColor(StatusString, StatusColor);
-					return FText::FromString(StatusString);
-				})
-				.ColorAndOpacity_Lambda([GetSessionSyncStatusAndColor]()
-				{
-					FString StatusString;
-					FLinearColor StatusColor;
-					GetSessionSyncStatusAndColor(StatusString, StatusColor);
-					return FSlateColor(StatusColor);
-				})
-			]			
-		]
-
-		//------------------------------------------------------------------------------------------
-		// FETCH from Houdini
-		//------------------------------------------------------------------------------------------
-		+ SVerticalBox::Slot()
-		.HAlign(HAlign_Left)
-		.AutoHeight()
-		.Padding(10.0, 20.0, 0.0, 15.0)
-		[
-			SNew(SBox)
-			.HAlign(HAlign_Center)
-			.VAlign(VAlign_Top)
-			[
-				SNew(STextBlock)
-				.Font(BoldFontStyle)
-				.Text(LOCTEXT("FetchLabel", "FETCH from Houdini"))
-			]
-		]
-
-		// HOUDINI NODE PATH
-		+ SVerticalBox::Slot()
-		.HAlign(HAlign_Left)
-		.AutoHeight()
-		.Padding(10.0f, 0.0, 0.0, 0.0f)
-		[
-			SNew(SHorizontalBox)
-			+ SHorizontalBox::Slot()
+			//------------------------------------------------------------------------------------------
+			// Session status
+			//------------------------------------------------------------------------------------------
+			SNew(SVerticalBox)
+			+ SVerticalBox::Slot()
 			.HAlign(HAlign_Left)
 			.Padding(15.0, 0.0, 0.0, 0.0)
 			.AutoHeight()
@@ -239,19 +193,16 @@ SHoudiniNodeSyncPanel::Construct( const FArguments& InArgs )
 				SNew(SHorizontalBox)
 				+ SHorizontalBox::Slot()
 				.HAlign(HAlign_Left)
-				//.MaxWidth(HAPI_UNREAL_DESIRED_SETTINGS_ROW_FULL_WIDGET_WIDTH)
 				[
 					SNew(SBox)
 					.WidthOverride(335.0f)
-					//.MinDesiredWidth(HAPI_UNREAL_DESIRED_ROW_VALUE_WIDGET_WIDTH)
 					[
 						SNew(STextBlock)
 						.Text(LOCTEXT("FetchNodePathLabel", "Houdini Node Path To Fetch"))
 					]
 				]
 				+ SHorizontalBox::Slot()
-				.HAlign(HAlign_Left)
-				//.FillWidth(1.0f)
+				.HAlign(HAlign_Right)
 				[
 					SNew(SEditableTextBox)
 					.MinDesiredWidth(HAPI_UNREAL_DESIRED_ROW_VALUE_WIDGET_WIDTH)
@@ -261,15 +212,15 @@ SHoudiniNodeSyncPanel::Construct( const FArguments& InArgs )
 					.Font(_GetEditorStyle().GetFontStyle(TEXT("PropertyWindow.NormalFont")))
 					.Text_Lambda([]()
 					{
-						UHoudiniEditorNodeSyncSubsystem* HoudiniEditorNodeSyncSubsystem = GEditor->GetEditorSubsystem<UHoudiniEditorNodeSyncSubsystem>();
-						return FText::FromString(HoudiniEditorNodeSyncSubsystem->NodeSyncOptions.FetchNodePath);
+						UHoudiniEditorSubsystem* HoudiniEditorSubsystem = GEditor->GetEditorSubsystem<UHoudiniEditorSubsystem>();
+						return FText::FromString(HoudiniEditorSubsystem->NodeSyncOptions.FetchNodePath);
 					})
 					.OnTextCommitted_Lambda([](const FText& Val, ETextCommit::Type TextCommitType)
 					{
 						FString NewPathStr = Val.ToString();
 
-						UHoudiniEditorNodeSyncSubsystem* HoudiniEditorNodeSyncSubsystem = GEditor->GetEditorSubsystem<UHoudiniEditorNodeSyncSubsystem>();
-						HoudiniEditorNodeSyncSubsystem->NodeSyncOptions.FetchNodePath = NewPathStr;
+						UHoudiniEditorSubsystem* HoudiniEditorSubsystem = GEditor->GetEditorSubsystem<UHoudiniEditorSubsystem>();
+						HoudiniEditorSubsystem->NodeSyncOptions.FetchNodePath = NewPathStr;
 					})
 				]
 			]
@@ -292,14 +243,14 @@ SHoudiniNodeSyncPanel::Construct( const FArguments& InArgs )
 					]
 					.IsChecked_Lambda([]()
 					{
-						UHoudiniEditorNodeSyncSubsystem* HoudiniEditorNodeSyncSubsystem = GEditor->GetEditorSubsystem<UHoudiniEditorNodeSyncSubsystem>();
-						return HoudiniEditorNodeSyncSubsystem->NodeSyncOptions.bUseOutputNodes ? ECheckBoxState::Checked : ECheckBoxState::Unchecked;
+						UHoudiniEditorSubsystem* HoudiniEditorSubsystem = GEditor->GetEditorSubsystem<UHoudiniEditorSubsystem>();
+						return HoudiniEditorSubsystem->NodeSyncOptions.bUseOutputNodes ? ECheckBoxState::Checked : ECheckBoxState::Unchecked;
 					})
 					.OnCheckStateChanged_Lambda([](ECheckBoxState NewState)
 					{
 						const bool bNewState = (NewState == ECheckBoxState::Checked);
-						UHoudiniEditorNodeSyncSubsystem* HoudiniEditorNodeSyncSubsystem = GEditor->GetEditorSubsystem<UHoudiniEditorNodeSyncSubsystem>();
-						HoudiniEditorNodeSyncSubsystem->NodeSyncOptions.bUseOutputNodes = bNewState;
+						UHoudiniEditorSubsystem* HoudiniEditorSubsystem = GEditor->GetEditorSubsystem<UHoudiniEditorSubsystem>();
+						HoudiniEditorSubsystem->NodeSyncOptions.bUseOutputNodes = bNewState;
 					})
 				]
 			]
@@ -322,14 +273,14 @@ SHoudiniNodeSyncPanel::Construct( const FArguments& InArgs )
 					]
 					.IsChecked_Lambda([]()
 					{
-						UHoudiniEditorNodeSyncSubsystem* HoudiniEditorNodeSyncSubsystem = GEditor->GetEditorSubsystem<UHoudiniEditorNodeSyncSubsystem>();
-						return HoudiniEditorNodeSyncSubsystem->NodeSyncOptions.bReplaceExisting ? ECheckBoxState::Checked : ECheckBoxState::Unchecked;
+						UHoudiniEditorSubsystem* HoudiniEditorSubsystem = GEditor->GetEditorSubsystem<UHoudiniEditorSubsystem>();
+						return HoudiniEditorSubsystem->NodeSyncOptions.bReplaceExisting ? ECheckBoxState::Checked : ECheckBoxState::Unchecked;
 					})
 					.OnCheckStateChanged_Lambda([](ECheckBoxState NewState)
 					{
 						const bool bNewState = (NewState == ECheckBoxState::Checked);
-						UHoudiniEditorNodeSyncSubsystem* HoudiniEditorNodeSyncSubsystem = GEditor->GetEditorSubsystem<UHoudiniEditorNodeSyncSubsystem>();
-						HoudiniEditorNodeSyncSubsystem->NodeSyncOptions.bReplaceExisting = bNewState;
+						UHoudiniEditorSubsystem* HoudiniEditorSubsystem = GEditor->GetEditorSubsystem<UHoudiniEditorSubsystem>();
+						HoudiniEditorSubsystem->NodeSyncOptions.bReplaceExisting = bNewState;
 					})
 				]
 			]
@@ -362,15 +313,15 @@ SHoudiniNodeSyncPanel::Construct( const FArguments& InArgs )
 					.Font(_GetEditorStyle().GetFontStyle(TEXT("PropertyWindow.NormalFont")))
 					.Text_Lambda([]()
 					{
-						UHoudiniEditorNodeSyncSubsystem* HoudiniEditorNodeSyncSubsystem = GEditor->GetEditorSubsystem<UHoudiniEditorNodeSyncSubsystem>();
-						return FText::FromString(HoudiniEditorNodeSyncSubsystem->NodeSyncOptions.UnrealAssetName);
+						UHoudiniEditorSubsystem* HoudiniEditorSubsystem = GEditor->GetEditorSubsystem<UHoudiniEditorSubsystem>();
+						return FText::FromString(HoudiniEditorSubsystem->NodeSyncOptions.UnrealAssetName);
 					})
 					.OnTextCommitted_Lambda([](const FText& Val, ETextCommit::Type TextCommitType)
 					{
 						FString NewPathStr = Val.ToString();
 
-						UHoudiniEditorNodeSyncSubsystem* HoudiniEditorNodeSyncSubsystem = GEditor->GetEditorSubsystem<UHoudiniEditorNodeSyncSubsystem>();
-						HoudiniEditorNodeSyncSubsystem->NodeSyncOptions.UnrealAssetName = NewPathStr;
+						UHoudiniEditorSubsystem* HoudiniEditorSubsystem = GEditor->GetEditorSubsystem<UHoudiniEditorSubsystem>();
+						HoudiniEditorSubsystem->NodeSyncOptions.UnrealAssetName = NewPathStr;
 					})
 				]
 			]
@@ -402,15 +353,15 @@ SHoudiniNodeSyncPanel::Construct( const FArguments& InArgs )
 					.Font(_GetEditorStyle().GetFontStyle(TEXT("PropertyWindow.NormalFont")))
 					.Text_Lambda([]()
 					{
-						UHoudiniEditorNodeSyncSubsystem* HoudiniEditorNodeSyncSubsystem = GEditor->GetEditorSubsystem<UHoudiniEditorNodeSyncSubsystem>();
-						return FText::FromString(HoudiniEditorNodeSyncSubsystem->NodeSyncOptions.UnrealAssetFolder);
+						UHoudiniEditorSubsystem* HoudiniEditorSubsystem = GEditor->GetEditorSubsystem<UHoudiniEditorSubsystem>();
+						return FText::FromString(HoudiniEditorSubsystem->NodeSyncOptions.UnrealAssetFolder);
 					})
 					.OnTextCommitted_Lambda([](const FText& Val, ETextCommit::Type TextCommitType)
 					{
 						FString NewPathStr = Val.ToString();
 
-						UHoudiniEditorNodeSyncSubsystem* HoudiniEditorNodeSyncSubsystem = GEditor->GetEditorSubsystem<UHoudiniEditorNodeSyncSubsystem>();
-						HoudiniEditorNodeSyncSubsystem->NodeSyncOptions.UnrealAssetFolder = NewPathStr;
+						UHoudiniEditorSubsystem* HoudiniEditorSubsystem = GEditor->GetEditorSubsystem<UHoudiniEditorSubsystem>();
+						HoudiniEditorSubsystem->NodeSyncOptions.UnrealAssetFolder = NewPathStr;
 					})
 				]
 			]
@@ -423,7 +374,6 @@ SHoudiniNodeSyncPanel::Construct( const FArguments& InArgs )
 			[
 				SNew(SBox)
 				.WidthOverride(160.f)
-				//.IsEnabled(false)
 				[
 					SAssignNew(CheckBoxFetchToWorld, SCheckBox)
 					.Content()
@@ -434,14 +384,14 @@ SHoudiniNodeSyncPanel::Construct( const FArguments& InArgs )
 					]
 					.IsChecked_Lambda([]()
 					{
-						UHoudiniEditorNodeSyncSubsystem* HoudiniEditorNodeSyncSubsystem = GEditor->GetEditorSubsystem<UHoudiniEditorNodeSyncSubsystem>();
-						return HoudiniEditorNodeSyncSubsystem->NodeSyncOptions.bFetchToWorld ? ECheckBoxState::Checked : ECheckBoxState::Unchecked;
+						UHoudiniEditorSubsystem* HoudiniEditorSubsystem = GEditor->GetEditorSubsystem<UHoudiniEditorSubsystem>();
+						return HoudiniEditorSubsystem->NodeSyncOptions.bFetchToWorld ? ECheckBoxState::Checked : ECheckBoxState::Unchecked;
 					})
 					.OnCheckStateChanged_Lambda([](ECheckBoxState NewState)
 					{
 						const bool bNewState = (NewState == ECheckBoxState::Checked);
-						UHoudiniEditorNodeSyncSubsystem* HoudiniEditorNodeSyncSubsystem = GEditor->GetEditorSubsystem<UHoudiniEditorNodeSyncSubsystem>();
-						HoudiniEditorNodeSyncSubsystem->NodeSyncOptions.bFetchToWorld = bNewState;
+						UHoudiniEditorSubsystem* HoudiniEditorSubsystem = GEditor->GetEditorSubsystem<UHoudiniEditorSubsystem>();
+						HoudiniEditorSubsystem->NodeSyncOptions.bFetchToWorld = bNewState;
 					})
 				]
 			]
@@ -463,37 +413,8 @@ SHoudiniNodeSyncPanel::Construct( const FArguments& InArgs )
 				]
 				.BodyContent()
 				[
-					SNew(SVerticalBox)
-					// AutoBake?
-					+ SVerticalBox::Slot()
-					.HAlign(HAlign_Left)
-					.AutoHeight()
-					.Padding(10.0f, 0.0f, 0.0f, 5.0f)
-					[
-						SNew(SBox)
-						.WidthOverride(160.f)
-						[
-							SAssignNew(CheckBoxAutoBake, SCheckBox)
-							.Content()
-							[
-								SNew(STextBlock).Text(LOCTEXT("AutoBake", "Auto Bake"))
-								.ToolTipText(LOCTEXT("AutoBakeToolTip", "If enabled, output data fetched to world will automatically be baked. If disabled, they will be created as temporary cooked data, and attached to a Houdini Node Sync Component."))
-								.Font(_GetEditorStyle().GetFontStyle(TEXT("PropertyWindow.NormalFont")))
-							]
-							.IsChecked_Lambda([]()
-							{
-								UHoudiniEditorNodeSyncSubsystem* HoudiniEditorNodeSyncSubsystem = GEditor->GetEditorSubsystem<UHoudiniEditorNodeSyncSubsystem>();
-								return HoudiniEditorNodeSyncSubsystem->NodeSyncOptions.bAutoBake ? ECheckBoxState::Checked : ECheckBoxState::Unchecked;
-							})
-							.OnCheckStateChanged_Lambda([](ECheckBoxState NewState)
-							{
-								const bool bNewState = (NewState == ECheckBoxState::Checked);
-								UHoudiniEditorNodeSyncSubsystem* HoudiniEditorNodeSyncSubsystem = GEditor->GetEditorSubsystem<UHoudiniEditorNodeSyncSubsystem>();
-								HoudiniEditorNodeSyncSubsystem->NodeSyncOptions.bAutoBake = bNewState;
-							})
-						]
-					]
 					// UNREAL ACTOR NAME
+					SNew(SVerticalBox)
 					+ SVerticalBox::Slot()
 					.HAlign(HAlign_Left)
 					.AutoHeight()
@@ -505,7 +426,6 @@ SHoudiniNodeSyncPanel::Construct( const FArguments& InArgs )
 						[
 							SNew(SBox)
 							.WidthOverride(335.0f)
-							//.IsEnabled(false)
 							[
 								SNew(STextBlock)
 								.Text(LOCTEXT("UnrealActorName", "Unreal Actor Name"))
@@ -515,22 +435,21 @@ SHoudiniNodeSyncPanel::Construct( const FArguments& InArgs )
 						.HAlign(HAlign_Right)
 						[
 							SNew(SEditableTextBox)
-							//.IsEnabled(false)
 							.MinDesiredWidth(HAPI_UNREAL_DESIRED_ROW_VALUE_WIDGET_WIDTH)
 							.ToolTipText(LOCTEXT("UnrealActorNameTooltip", "Name of the generated Actor in unreal"))
 							.HintText(LOCTEXT("UnrealActorNameLabel", "Unreal Actor Name"))
 							.Font(_GetEditorStyle().GetFontStyle(TEXT("PropertyWindow.NormalFont")))
 							.Text_Lambda([]()
 							{
-								UHoudiniEditorNodeSyncSubsystem* HoudiniEditorNodeSyncSubsystem = GEditor->GetEditorSubsystem<UHoudiniEditorNodeSyncSubsystem>();
-								return FText::FromString(HoudiniEditorNodeSyncSubsystem->NodeSyncOptions.UnrealActorName);
+								UHoudiniEditorSubsystem* HoudiniEditorSubsystem = GEditor->GetEditorSubsystem<UHoudiniEditorSubsystem>();
+								return FText::FromString(HoudiniEditorSubsystem->NodeSyncOptions.UnrealActorName);
 							})
 							.OnTextCommitted_Lambda([](const FText& Val, ETextCommit::Type TextCommitType)
 							{
 								FString NewPathStr = Val.ToString();
 
-								UHoudiniEditorNodeSyncSubsystem* HoudiniEditorNodeSyncSubsystem = GEditor->GetEditorSubsystem<UHoudiniEditorNodeSyncSubsystem>();
-								HoudiniEditorNodeSyncSubsystem->NodeSyncOptions.UnrealActorName = NewPathStr;
+								UHoudiniEditorSubsystem* HoudiniEditorSubsystem = GEditor->GetEditorSubsystem<UHoudiniEditorSubsystem>();
+								HoudiniEditorSubsystem->NodeSyncOptions.UnrealActorName = NewPathStr;
 							})
 						]
 					]
@@ -547,7 +466,6 @@ SHoudiniNodeSyncPanel::Construct( const FArguments& InArgs )
 						[
 							SNew(SBox)
 							.WidthOverride(335.0f)
-							//.IsEnabled(false)
 							[
 								SNew(STextBlock)
 								.Text(LOCTEXT("UnrealActorFolderLabel", "World Outliner Folder"))
@@ -557,25 +475,35 @@ SHoudiniNodeSyncPanel::Construct( const FArguments& InArgs )
 						.HAlign(HAlign_Right)
 						[
 							SNew(SEditableTextBox)
-							//.IsEnabled(false)
 							.MinDesiredWidth(HAPI_UNREAL_DESIRED_ROW_VALUE_WIDGET_WIDTH)
 							.ToolTipText(LOCTEXT("UnrealActorFolderTooltip","Path to a world outliner folder that will contain the created Actor"))
 							.HintText(LOCTEXT("UnrealActorFolderLabel", "Unreal Actor World Outliner Folder"))
 							.Font(_GetEditorStyle().GetFontStyle(TEXT("PropertyWindow.NormalFont")))
 							.Text_Lambda([]()
 							{
-								UHoudiniEditorNodeSyncSubsystem* HoudiniEditorNodeSyncSubsystem = GEditor->GetEditorSubsystem<UHoudiniEditorNodeSyncSubsystem>();
-								return FText::FromString(HoudiniEditorNodeSyncSubsystem->NodeSyncOptions.UnrealActorFolder);
+								UHoudiniEditorSubsystem* HoudiniEditorSubsystem = GEditor->GetEditorSubsystem<UHoudiniEditorSubsystem>();
+								return FText::FromString(HoudiniEditorSubsystem->NodeSyncOptions.UnrealActorFolder);
 							})
 							.OnTextCommitted_Lambda([](const FText& Val, ETextCommit::Type TextCommitType)
 							{
 								FString NewPathStr = Val.ToString();
 
-								UHoudiniEditorNodeSyncSubsystem* HoudiniEditorNodeSyncSubsystem = GEditor->GetEditorSubsystem<UHoudiniEditorNodeSyncSubsystem>();
-								HoudiniEditorNodeSyncSubsystem->NodeSyncOptions.UnrealActorFolder = NewPathStr;
+								UHoudiniEditorSubsystem* HoudiniEditorSubsystem = GEditor->GetEditorSubsystem<UHoudiniEditorSubsystem>();
+								HoudiniEditorSubsystem->NodeSyncOptions.UnrealActorFolder = NewPathStr;
 							})
 						]
 					]
+					.IsChecked_Lambda([]()
+					{
+						UHoudiniEditorNodeSyncSubsystem* HoudiniEditorNodeSyncSubsystem = GEditor->GetEditorSubsystem<UHoudiniEditorNodeSyncSubsystem>();
+						return HoudiniEditorNodeSyncSubsystem->NodeSyncOptions.bFetchToWorld ? ECheckBoxState::Checked : ECheckBoxState::Unchecked;
+					})
+					.OnCheckStateChanged_Lambda([](ECheckBoxState NewState)
+					{
+						const bool bNewState = (NewState == ECheckBoxState::Checked);
+						UHoudiniEditorNodeSyncSubsystem* HoudiniEditorNodeSyncSubsystem = GEditor->GetEditorSubsystem<UHoudiniEditorNodeSyncSubsystem>();
+						HoudiniEditorNodeSyncSubsystem->NodeSyncOptions.bFetchToWorld = bNewState;
+					})
 				]
 			]
 			/*
@@ -627,14 +555,14 @@ SHoudiniNodeSyncPanel::Construct( const FArguments& InArgs )
 								]
 								.IsChecked_Lambda([]()
 								{
-									UHoudiniEditorNodeSyncSubsystem* HoudiniEditorNodeSyncSubsystem = GEditor->GetEditorSubsystem<UHoudiniEditorNodeSyncSubsystem>();
-									return HoudiniEditorNodeSyncSubsystem->NodeSyncOptions.bOverwriteSkeleton ? ECheckBoxState::Checked : ECheckBoxState::Unchecked;
+									UHoudiniEditorSubsystem* HoudiniEditorSubsystem = GEditor->GetEditorSubsystem<UHoudiniEditorSubsystem>();
+									return HoudiniEditorSubsystem->NodeSyncOptions.bOverwriteSkeleton ? ECheckBoxState::Checked : ECheckBoxState::Unchecked;
 								})
 								.OnCheckStateChanged_Lambda([](ECheckBoxState NewState)
 								{
 									const bool bNewState = (NewState == ECheckBoxState::Checked);
-									UHoudiniEditorNodeSyncSubsystem* HoudiniEditorNodeSyncSubsystem = GEditor->GetEditorSubsystem<UHoudiniEditorNodeSyncSubsystem>();
-									HoudiniEditorNodeSyncSubsystem->NodeSyncOptions.bOverwriteSkeleton = bNewState;
+									UHoudiniEditorSubsystem* HoudiniEditorSubsystem = GEditor->GetEditorSubsystem<UHoudiniEditorSubsystem>();
+									HoudiniEditorSubsystem->NodeSyncOptions.bOverwriteSkeleton = bNewState;
 								})
 							]
 						]
@@ -648,15 +576,15 @@ SHoudiniNodeSyncPanel::Construct( const FArguments& InArgs )
 							.Font(_GetEditorStyle().GetFontStyle(TEXT("PropertyWindow.NormalFont")))
 							.Text_Lambda([]()
 							{
-								UHoudiniEditorNodeSyncSubsystem* HoudiniEditorNodeSyncSubsystem = GEditor->GetEditorSubsystem<UHoudiniEditorNodeSyncSubsystem>();
-								return FText::FromString(HoudiniEditorNodeSyncSubsystem->NodeSyncOptions.SkeletonAssetPath);
+								UHoudiniEditorSubsystem* HoudiniEditorSubsystem = GEditor->GetEditorSubsystem<UHoudiniEditorSubsystem>();
+								return FText::FromString(HoudiniEditorSubsystem->NodeSyncOptions.SkeletonAssetPath);
 							})
 							.OnTextCommitted_Lambda([](const FText& Val, ETextCommit::Type TextCommitType)
 							{
 								FString NewPathStr = Val.ToString();
 
-								UHoudiniEditorNodeSyncSubsystem* HoudiniEditorNodeSyncSubsystem = GEditor->GetEditorSubsystem<UHoudiniEditorNodeSyncSubsystem>();
-								HoudiniEditorNodeSyncSubsystem->NodeSyncOptions.SkeletonAssetPath = NewPathStr;
+								UHoudiniEditorSubsystem* HoudiniEditorSubsystem = GEditor->GetEditorSubsystem<UHoudiniEditorSubsystem>();
+								HoudiniEditorSubsystem->NodeSyncOptions.SkeletonAssetPath = NewPathStr;
 							})
 						]
 					]
@@ -684,8 +612,8 @@ SHoudiniNodeSyncPanel::Construct( const FArguments& InArgs )
 						.Visibility(EVisibility::Visible)
 						.OnClicked_Lambda([]()
 						{
-							UHoudiniEditorNodeSyncSubsystem* HoudiniEditorNodeSyncSubsystem = GEditor->GetEditorSubsystem<UHoudiniEditorNodeSyncSubsystem>();
-							HoudiniEditorNodeSyncSubsystem->Fetch();
+							UHoudiniEditorSubsystem* HoudiniEditorSubsystem = GEditor->GetEditorSubsystem<UHoudiniEditorSubsystem>();
+							HoudiniEditorSubsystem->Fetch();
 							return FReply::Handled();
 						})
 						.Content()
@@ -713,22 +641,22 @@ SHoudiniNodeSyncPanel::Construct( const FArguments& InArgs )
 					.Justification(ETextJustify::Left)
 					.Text_Lambda([]()
 					{
-						UHoudiniEditorNodeSyncSubsystem* HoudiniEditorNodeSyncSubsystem = GEditor->GetEditorSubsystem<UHoudiniEditorNodeSyncSubsystem>();					
-						return FText::FromString(HoudiniEditorNodeSyncSubsystem->FetchStatusMessage);
+						UHoudiniEditorSubsystem* HoudiniEditorSubsystem = GEditor->GetEditorSubsystem<UHoudiniEditorSubsystem>();					
+						return FText::FromString(HoudiniEditorSubsystem->FetchStatusMessage);
 					})
 					.ColorAndOpacity_Lambda([]()
 					{
-						UHoudiniEditorNodeSyncSubsystem* HoudiniEditorNodeSyncSubsystem = GEditor->GetEditorSubsystem<UHoudiniEditorNodeSyncSubsystem>();					
-						FLinearColor StatusColor = UHoudiniEditorNodeSyncSubsystem::GetStatusColor(HoudiniEditorNodeSyncSubsystem->LastFetchStatus);					
+						UHoudiniEditorSubsystem* HoudiniEditorSubsystem = GEditor->GetEditorSubsystem<UHoudiniEditorSubsystem>();					
+						FLinearColor StatusColor = UHoudiniEditorSubsystem::GetStatusColor(HoudiniEditorSubsystem->LastFetchStatus);					
 						return FSlateColor(StatusColor);
 					})
 					.ToolTipText_Lambda([]()
 					{
-						UHoudiniEditorNodeSyncSubsystem* HoudiniEditorNodeSyncSubsystem = GEditor->GetEditorSubsystem<UHoudiniEditorNodeSyncSubsystem>();
-						if(!HoudiniEditorNodeSyncSubsystem->FetchStatusDetails.IsEmpty())
-							return FText::FromString(HoudiniEditorNodeSyncSubsystem->FetchStatusDetails);
+						UHoudiniEditorSubsystem* HoudiniEditorSubsystem = GEditor->GetEditorSubsystem<UHoudiniEditorSubsystem>();
+						if(!HoudiniEditorSubsystem->FetchStatusDetails.IsEmpty())
+							return FText::FromString(HoudiniEditorSubsystem->FetchStatusDetails);
 						else
-							return FText::FromString(HoudiniEditorNodeSyncSubsystem->FetchStatusMessage);
+							return FText::FromString(HoudiniEditorSubsystem->FetchStatusMessage);
 					})
 				]
 			]
@@ -779,15 +707,15 @@ SHoudiniNodeSyncPanel::Construct( const FArguments& InArgs )
 					.Font(_GetEditorStyle().GetFontStyle(TEXT("PropertyWindow.NormalFont")))
 					.Text_Lambda([]()
 					{
-						UHoudiniEditorNodeSyncSubsystem* HoudiniEditorNodeSyncSubsystem = GEditor->GetEditorSubsystem<UHoudiniEditorNodeSyncSubsystem>();
-						return FText::FromString(HoudiniEditorNodeSyncSubsystem->NodeSyncOptions.SendNodePath);
+						UHoudiniEditorSubsystem* HoudiniEditorSubsystem = GEditor->GetEditorSubsystem<UHoudiniEditorSubsystem>();
+						return FText::FromString(HoudiniEditorSubsystem->NodeSyncOptions.SendNodePath);
 					})
 					.OnTextCommitted_Lambda([](const FText& Val, ETextCommit::Type TextCommitType)
 					{
 						FString NewPathStr = Val.ToString();
 
-						UHoudiniEditorNodeSyncSubsystem* HoudiniEditorNodeSyncSubsystem = GEditor->GetEditorSubsystem<UHoudiniEditorNodeSyncSubsystem>();
-						HoudiniEditorNodeSyncSubsystem->NodeSyncOptions.SendNodePath = NewPathStr;
+						UHoudiniEditorSubsystem* HoudiniEditorSubsystem = GEditor->GetEditorSubsystem<UHoudiniEditorSubsystem>();
+						HoudiniEditorSubsystem->NodeSyncOptions.SendNodePath = NewPathStr;
 					})
 				]
 			]
@@ -837,8 +765,8 @@ SHoudiniNodeSyncPanel::Construct( const FArguments& InArgs )
 						.Visibility(EVisibility::Visible)
 						.OnClicked_Lambda([]()
 						{
-							UHoudiniEditorNodeSyncSubsystem* HoudiniEditorNodeSyncSubsystem = GEditor->GetEditorSubsystem<UHoudiniEditorNodeSyncSubsystem>();
-							HoudiniEditorNodeSyncSubsystem->SendWorldSelection();
+							UHoudiniEditorSubsystem* HoudiniEditorSubsystem = GEditor->GetEditorSubsystem<UHoudiniEditorSubsystem>();
+							HoudiniEditorSubsystem->SendWorldSelection();
 							return FReply::Handled();
 						})
 						.Content()
@@ -847,6 +775,42 @@ SHoudiniNodeSyncPanel::Construct( const FArguments& InArgs )
 							.Text(FText::FromString("Send"))
 						]
 					]
+				]
+			]
+
+			// Last SEND status
+			+ SVerticalBox::Slot()
+			.HAlign(HAlign_Center)
+			.AutoHeight()
+			.Padding(15.0, 0.0, 15.0, 15.0)
+			[
+				SNew(SHorizontalBox)
+				+ SHorizontalBox::Slot()
+				.FillWidth(1.0f)
+				.Padding(2.0f, 0.0f)
+				.VAlign(VAlign_Top)
+				[
+					SNew(STextBlock)
+					.Justification(ETextJustify::Left)
+					.Text_Lambda([]()
+					{
+						UHoudiniEditorSubsystem* HoudiniEditorSubsystem = GEditor->GetEditorSubsystem<UHoudiniEditorSubsystem>();					
+						return FText::FromString(HoudiniEditorSubsystem->SendStatusMessage);
+					})
+					.ColorAndOpacity_Lambda([]()
+					{
+						UHoudiniEditorSubsystem* HoudiniEditorSubsystem = GEditor->GetEditorSubsystem<UHoudiniEditorSubsystem>();					
+						FLinearColor StatusColor = UHoudiniEditorSubsystem::GetStatusColor(HoudiniEditorSubsystem->LastSendStatus);					
+						return FSlateColor(StatusColor);
+					})
+					.ToolTipText_Lambda([]()
+					{
+						UHoudiniEditorSubsystem* HoudiniEditorSubsystem = GEditor->GetEditorSubsystem<UHoudiniEditorSubsystem>();
+						if (!HoudiniEditorSubsystem->SendStatusDetails.IsEmpty())
+							return FText::FromString(HoudiniEditorSubsystem->SendStatusDetails);
+						else
+							return FText::FromString(HoudiniEditorSubsystem->SendStatusMessage);
+					})
 				]
 			]
 
