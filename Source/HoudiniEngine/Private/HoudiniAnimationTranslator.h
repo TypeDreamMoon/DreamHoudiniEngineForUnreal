@@ -27,32 +27,15 @@
 #pragma once
 
 #include "HAPI/HAPI_Common.h"
-#include "HoudiniEnginePrivatePCH.h"
 
-#include "Containers/UnrealString.h"
-
-class FJsonObject;
-struct FHoudiniGeoPartObject;
-struct FHoudiniPackageParams;
-class UHoudiniOutput;
 class UAnimSequence;
 
 struct HOUDINIENGINE_API FHoudiniAnimationTranslator
 {
-public:
-	// Check whether the given PartId looks like a frame from a motion clip
-	static bool IsMotionClipFrame(const HAPI_NodeId& GeoId, const HAPI_NodeId& PartId, bool bRequiresLocalTransform);
-
-	static bool CreateAnimSequenceFromOutput(UHoudiniOutput* InOutput,  const FHoudiniPackageParams& InPackageParams, UObject* InOuterComponent);
-	static bool CreateAnimationFromMotionClip(UHoudiniOutput* InOutput, const TArray<FHoudiniGeoPartObject>& HGPOs, const FHoudiniPackageParams& InPackageParams, UObject* InOuterComponent);
-	static UAnimSequence* CreateNewAnimation(FHoudiniPackageParams& InPackageParams, const FHoudiniGeoPartObject& HGPO, const FString& InSplitIdentifier);
-
-private:
-	static HAPI_PartId GetInstancedMeshPartID(const FHoudiniGeoPartObject& InstancerHGPO);
-	static FString GetUnrealSkeletonPath(const TArray<FHoudiniGeoPartObject>& HGPOs);
-	static bool GetClipInfo(const FHoudiniGeoPartObject& InstancerHGPO, float& OutFrameRate);
-	static bool GetFbxCustomAttributes(int GeoId, int MeshPartId, int RootBoneIndex, TSharedPtr<FJsonObject>& OutJSONObject);
-	
-	
+	public:
+		static bool IsAnimationPart(const HAPI_NodeId& GeoId, const HAPI_NodeId& PartId);
+		static void CreateAnimSequenceFromOutput(UHoudiniOutput* InOutput,  const FHoudiniPackageParams& InPackageParams, UObject* InOuterComponent);
+		static bool CreateAnimationFromMotionClip(UHoudiniOutput* InOutput, const FHoudiniGeoPartObject& HGPO, const FHoudiniPackageParams& InPackageParams, UObject* InOuterComponent);
+		static UAnimSequence* CreateNewAnimation(FHoudiniPackageParams& InPackageParams, const FHoudiniGeoPartObject& HGPO, const FString& InSplitIdentifier);
 };
 

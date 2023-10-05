@@ -26,6 +26,8 @@
 
 #include "UnrealAnimationTranslator.h"
 
+#include "UObject/TextProperty.h"
+
 #include "HoudiniEngine.h"
 #include "HoudiniEngineUtils.h"
 #include "HoudiniEnginePrivatePCH.h"
@@ -36,10 +38,10 @@
 #include "UnrealObjectInputRuntimeUtils.h"
 #include "HoudiniEngineRuntimeUtils.h"
 
+#include "Engine/SkeletalMesh.h"
 #include "Animation/Skeleton.h"
 #include "Animation/AnimSequence.h"
 #include "ReferenceSkeleton.h"
-#include "Serialization/JsonSerializer.h"
 
 
 bool
@@ -71,7 +73,15 @@ bool FUnrealAnimationTranslator::CreateInputNodeForAnimation(
 
 	if (bUseRefCountedInputSystem)
 	{
-		const FUnrealObjectInputOptions Options;
+		bool bDefaultImportAsReference = false;
+		bool bDefaultImportAsReferenceRotScaleEnabled = false;
+		const FUnrealObjectInputOptions Options(
+			bDefaultImportAsReference,
+			bDefaultImportAsReferenceRotScaleEnabled,
+			false,
+			false,
+			false
+		);
 
 
 		return true;
@@ -106,7 +116,15 @@ FUnrealAnimationTranslator::HapiCreateInputNodeForAnimation(
 	if (bUseRefCountedInputSystem)
 	{
 		// Creates this input's identifier and input options
-		const FUnrealObjectInputOptions Options;
+		bool bDefaultImportAsReference = false;
+		bool bDefaultImportAsReferenceRotScaleEnabled = false;
+		const FUnrealObjectInputOptions Options(
+			bDefaultImportAsReference,
+			bDefaultImportAsReferenceRotScaleEnabled,
+			false,
+			false,
+			false);
+
 		Identifier = FUnrealObjectInputIdentifier(Animation, Options, true);
 
 		FUnrealObjectInputHandle Handle;
@@ -134,19 +152,6 @@ FUnrealAnimationTranslator::HapiCreateInputNodeForAnimation(
 
 		// We now need to create the nodes (since we couldn't find existing ones in the manager)
 		// To do that, we can simply continue this function
-
-		// Set InputNodeId to the current NodeId associated with Handle, since that is what we are replacing.
-		// (Option changes could mean that InputNodeId is associated with a completely different entry, albeit for
-		// the same asset, in the manager)
-		if (Handle.IsValid())
-		{
-			if (!FUnrealObjectInputUtils::GetHAPINodeId(Handle, InputNodeId))
-				InputNodeId = -1;
-		}
-		else
-		{
-			InputNodeId = -1;
-		}
 	}
 
 	// Node ID for the newly created node
@@ -194,39 +199,46 @@ FUnrealAnimationTranslator::HapiCreateInputNodeForAnimation(
 		HOUDINI_CHECK_ERROR_RETURN(FHoudiniApi::CommitGeo(
 			FHoudiniEngine::Get().GetSession(), NewNodeId), false);
 
+
+		// Create a node.
+		//HAPI_NodeId box_node_id;
+		//FHoudiniApi::CreateNode(FHoudiniEngine::Get().GetSession(), ParentNodeId, "box", nullptr, true, &box_node_id);
+		//result = HAPI_CreateNode(
+		//	hapiTestSession, network_node_id, "box", nullptr, true, &box_node_id);
+		//HAPI_TEST_ASSERT(result == HAPI_RESULT_SUCCESS);
+
 		//Create Output Node
 		HAPI_NodeId OutputNodeId;
 		HAPI_Result CreateResult = FHoudiniEngineUtils::CreateNode(InputObjectNodeId, TEXT("output"),
 			TEXT("Output"), true, &OutputNodeId);
 
-		// Create Point Wrangle node
-		// This will convert matrix attributes to their proper type which HAPI doesn't seem to be translating correctly. 
 
+
+		//Create Wrangle to convert matrices
 		HAPI_NodeId AttribWrangleNodeId;
+		CreateResult = FHoudiniEngineUtils::CreateNode(InputObjectNodeId, TEXT("attribwrangle"),
+			TEXT("convert_matrix"), true, &AttribWrangleNodeId);
+
+		HOUDINI_CHECK_ERROR_RETURN(FHoudiniApi::ConnectNodeInput(
+			FHoudiniEngine::Get().GetSession(),
+			AttribWrangleNodeId, 0, NewNodeId, 0), false);
+
+		// Construct a VEXpression to convert matrices.
+		const FString FormatString = TEXT("3@transform = matrix3(f[]@worldtransform);4@localtransform = matrix(f[]@ltransform); ");
+		//std::string VEXpression = TCHAR_TO_UTF8(*FString::Format(*FormatString,{ AttrName, PathName }));
+
+		// Set the snippet parameter to the VEXpression.
+		HAPI_ParmInfo ParmInfo;
+		HAPI_ParmId ParmId = FHoudiniEngineUtils::HapiFindParameterByName(AttribWrangleNodeId, "snippet", ParmInfo);
+		if (ParmId != -1)
 		{
-			CreateResult = FHoudiniEngineUtils::CreateNode(InputObjectNodeId, TEXT("attribwrangle"),
-				TEXT("convert_matrix"), true, &AttribWrangleNodeId);
-
-			HOUDINI_CHECK_ERROR_RETURN(FHoudiniApi::ConnectNodeInput(
-				FHoudiniEngine::Get().GetSession(),
-				AttribWrangleNodeId, 0, NewNodeId, 0), false);
-
-			// Construct a VEXpression to convert matrices.
-			const FString FormatString = TEXT("3@transform = matrix3(f[]@in_transform);\n4@localtransform = matrix(f[]@in_localtransform); ");
-
-			// Set the snippet parameter to the VEXpression.
-			HAPI_ParmInfo ParmInfo;
-			HAPI_ParmId ParmId = FHoudiniEngineUtils::HapiFindParameterByName(AttribWrangleNodeId, "snippet", ParmInfo);
-			if (ParmId != -1)
-			{
-				FHoudiniApi::SetParmStringValue(FHoudiniEngine::Get().GetSession(), AttribWrangleNodeId,
-					TCHAR_TO_UTF8(*FormatString), ParmId, 0);
-			}
-			else
-			{
-				HOUDINI_LOG_WARNING(TEXT("Invalid Parameter: %s"),
-					*FHoudiniEngineUtils::GetErrorDescription());
-			}
+			FHoudiniApi::SetParmStringValue(FHoudiniEngine::Get().GetSession(), AttribWrangleNodeId,
+				TCHAR_TO_UTF8(*FormatString), ParmId, 0);
+		}
+		else
+		{
+			HOUDINI_LOG_WARNING(TEXT("Invalid Parameter: %s"),
+				*FHoudiniEngineUtils::GetErrorDescription());
 		}
 
 		//Create Pack Node
@@ -234,7 +246,6 @@ FUnrealAnimationTranslator::HapiCreateInputNodeForAnimation(
 		HAPI_Result CreatePackResult = FHoudiniEngineUtils::CreateNode(InputObjectNodeId, TEXT("pack"),
 			TEXT("pack_data"), true, &PackNodeId);
 
-		// Connect to point wrangle
 		HOUDINI_CHECK_ERROR_RETURN(FHoudiniApi::ConnectNodeInput(
 			FHoudiniEngine::Get().GetSession(),
 			PackNodeId, 0, AttribWrangleNodeId, 0), false);
@@ -255,6 +266,10 @@ FUnrealAnimationTranslator::HapiCreateInputNodeForAnimation(
 				PackedFragmentsOption, 0, 0), false);
 		}
 
+		HOUDINI_CHECK_ERROR_RETURN(FHoudiniApi::ConnectNodeInput(
+			FHoudiniEngine::Get().GetSession(),
+			OutputNodeId, 0, PackNodeId, 0), false);
+
 		HAPI_ParmInfo nameattributeParmInfo;
 		HAPI_ParmId nameattributeParmId = FHoudiniEngineUtils::HapiFindParameterByName(PackNodeId, "nameattribute", nameattributeParmInfo);
 		if (nameattributeParmId != -1)
@@ -270,51 +285,6 @@ FUnrealAnimationTranslator::HapiCreateInputNodeForAnimation(
 			FHoudiniApi::SetParmStringValue(FHoudiniEngine::Get().GetSession(), PackNodeId,
 				"time", transfer_attributesParmId, 0);
 		}
-
-		// Create Detail Wrangle node
-		// This will copy the clipinfo dict to detail owner after pack (Pack doesn't want to transfer detail attributes) 
-
-		HAPI_NodeId DetailWrangleNodeId;
-		{
-			CreateResult = FHoudiniEngineUtils::CreateNode(InputObjectNodeId, TEXT("attribwrangle"),
-				TEXT("build_clipinfo"), true, &DetailWrangleNodeId);
-
-			// Connect to Pack
-			HOUDINI_CHECK_ERROR_RETURN(FHoudiniApi::ConnectNodeInput(
-			FHoudiniEngine::Get().GetSession(),
-			DetailWrangleNodeId, 0, PackNodeId, 0), false);
-			
-			// Connect to Point Wrangle
-			HOUDINI_CHECK_ERROR_RETURN(FHoudiniApi::ConnectNodeInput(
-				FHoudiniEngine::Get().GetSession(),
-				DetailWrangleNodeId, 1, AttribWrangleNodeId, 0), false);
-
-			// Set the class parameter to "detail"
-			FHoudiniApi::SetParmIntValue(FHoudiniEngine::Get().GetSession(), DetailWrangleNodeId, "class", 0, 0);
-
-			// Construct a VEXpression to convert matrices.
-			const FString FormatString = TEXT(R"(d@clipinfo = detail(1, "clipinfo");)");
-
-			// Set the snippet parameter to the VEXpression.
-			HAPI_ParmInfo SnippetParmInfo;
-			HAPI_ParmId SnippetParmId = FHoudiniEngineUtils::HapiFindParameterByName(DetailWrangleNodeId, "snippet", SnippetParmInfo);
-			if (SnippetParmId != -1)
-			{
-				FHoudiniApi::SetParmStringValue(FHoudiniEngine::Get().GetSession(), DetailWrangleNodeId,
-					TCHAR_TO_UTF8(*FormatString), SnippetParmId, 0);
-			}
-			else
-			{
-				HOUDINI_LOG_WARNING(TEXT("Invalid Parameter: %s"),
-					*FHoudiniEngineUtils::GetErrorDescription());
-			}
-		}
-
-		// Connect output to detail wrangle (build_clipinfo)
-		
-		HOUDINI_CHECK_ERROR_RETURN(FHoudiniApi::ConnectNodeInput(
-			FHoudiniEngine::Get().GetSession(),
-			OutputNodeId, 0, DetailWrangleNodeId, 0), false);
 
 		//HOUDINI_CHECK_ERROR_RETURN(FHoudiniApi::CommitGeo(
 		//	FHoudiniEngine::Get().GetSession(), AttribWrangleNodeId), false);
@@ -361,39 +331,6 @@ FUnrealAnimationTranslator::GetCompSpaceTransformForBone(const FReferenceSkeleto
 }
 
 FTransform
-FUnrealAnimationTranslator::GetCompSpacePoseTransformForBoneMap(const TMap<int,FTransform>& BoneMap, const FReferenceSkeleton& InSkel, const int32& InBoneIdx)
-{
-	//FTransform resultBoneTransform = InSkel.GetRefBonePose()[InBoneIdx];
-	FTransform resultBoneTransform = FTransform::Identity;
-	if (BoneMap.Contains(InBoneIdx))
-	{
-		resultBoneTransform = BoneMap.FindChecked(InBoneIdx);
-	}
-
-	auto refBoneInfo = InSkel.GetRefBoneInfo();
-
-	int32 Bone = InBoneIdx;
-	while (Bone)
-	{
-		const int32 ParentIdx = refBoneInfo[Bone].ParentIndex;
-		//if root then use -90
-		//FTransform BoneTransform = Bones[refBoneInfo[Bone].ParentIndex];
-		FTransform BoneTransform = FTransform::Identity;
-		if (BoneMap.Contains(ParentIdx))
-		{
-			BoneTransform = BoneMap.FindChecked(ParentIdx);
-		}
-
-		resultBoneTransform *= BoneTransform;
-		Bone = ParentIdx;
-	}
-
-	return resultBoneTransform;
-}
-
-
-
-FTransform
 FUnrealAnimationTranslator::GetCompSpacePoseTransformForBone(const TArray<FTransform>& Bones, const FReferenceSkeleton& InSkel, const int32& InBoneIdx)
 {
 	//FTransform resultBoneTransform = InSkel.GetRefBonePose()[InBoneIdx];
@@ -427,7 +364,7 @@ FUnrealAnimationTranslator::GetComponentSpaceTransforms(TArray<FTransform>& OutR
 	}
 }
 
-FString FUnrealAnimationTranslator::GetBonePathForBone(const FReferenceSkeleton& InSkel, const int32& InBoneIdx)
+FString FUnrealAnimationTranslator::GetBonePathForBone(const TArray<FTransform>& Bones, const FReferenceSkeleton& InSkel, const int32& InBoneIdx)
 {
 	FString BonePath;
 	auto refBoneInfo = InSkel.GetRefBoneInfo();
@@ -452,30 +389,31 @@ FString FUnrealAnimationTranslator::GetBonePathForBone(const FReferenceSkeleton&
 }
 
 
-bool
-FUnrealAnimationTranslator::AddBoneTracksToNode(HAPI_NodeId& NewNodeId, UAnimSequence* Animation)
+bool FUnrealAnimationTranslator::AddBoneTracksToNode(HAPI_NodeId& NewNodeId, UAnimSequence* Animation)
 {
 #if ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION >= 2
 
 	//read animation data
 	UAnimSequence* AnimSequence = CastChecked<UAnimSequence>(Animation);
-	const USkeleton* Skeleton = Animation->GetSkeleton();
-	const FReferenceSkeleton& RefSkeleton = Skeleton->GetReferenceSkeleton();
-	const FString SkeletonPathName = Skeleton->GetPathName();
-	//
+	USkeleton* Skeleton = Animation->GetSkeleton();
+	USkeletalMesh* PreviewMesh = Skeleton ? Skeleton->GetAssetPreviewMesh(AnimSequence) : NULL;
+	const FReferenceSkeleton& RefSkeleton = PreviewMesh->GetRefSkeleton();
+	TArray<FTransform> ComponentSpaceTransforms;
+	FUnrealAnimationTranslator::GetComponentSpaceTransforms(ComponentSpaceTransforms, RefSkeleton);  // In BindPose
+
 	const IAnimationDataModel* DataModel = Animation->GetDataModel();
 	TArray<const FAnimatedBoneAttribute*> CustomAttributes;
 	CustomAttributes.Reset();
-	//
-	TArray<FName> BonesTrackNames;
-	DataModel->GetBoneTrackNames(BonesTrackNames);
-	FFrameRate FrameRate = DataModel->GetFrameRate();
-	const float FrameRateInterval = DataModel->GetFrameRate().AsInterval();
+
+	//Working :-)
+	TArray<FName> OutNames;
+	DataModel->GetBoneTrackNames(OutNames);
+	float FrameRate = DataModel->GetFrameRate().AsInterval();
 
 	TMap<FName, TArray<FTransform>> TrackMap;  //For Each Bone, Store Array of transforms (one for each key)
 	int32 TotalTrackKeys = 0;
 	//Iterate over BoneTracks
-	for (FName TrackName : BonesTrackNames)
+	for (FName TrackName : OutNames)
 	{
 		//const FMeshBoneInfo& CurrentBone = RefSkeleton.GetRefBoneInfo()[BoneIndex];
 		TArray<FTransform> ThisTrackTransforms;
@@ -484,69 +422,50 @@ FUnrealAnimationTranslator::AddBoneTracksToNode(HAPI_NodeId& NewNodeId, UAnimSeq
 		TotalTrackKeys = ThisTrackTransforms.Num();
 		TArray<float> TrackFloatKeys;
 		TrackFloatKeys.SetNumZeroed(TotalTrackKeys * 20);
+		int FrameIndex = 0;
+		/*for (FTransform transform : ThisTrackTransforms)
+		{
+		}*/
 		TrackMap.Add(TrackName, ThisTrackTransforms);
+		FrameIndex++;
 	}
 	TArray<float> Points;
 	TArray<float> LocalTransformData;  //for pCaptData property
-	LocalTransformData.SetNumZeroed(4 * 4 * BonesTrackNames.Num() * (TotalTrackKeys + 1));  //4x4 matrix  // adding extra key for append
+	LocalTransformData.SetNumZeroed(4 * 4 * OutNames.Num() * (TotalTrackKeys + 1));  //4x4 matrix  // adding extra key for append
 
 	TArray<float> WorldTransformData;
-	WorldTransformData.SetNumZeroed(3 * 3 * BonesTrackNames.Num() * (TotalTrackKeys + 1));  //3x3 matrix
+	WorldTransformData.SetNumZeroed(3 * 3 * OutNames.Num() * (TotalTrackKeys + 1));  //3x3 matrix
 
 	TArray<float> PoseLocationData;
 	//PoseLocationData.SetNumZeroed(3 * OutNames.Num() * (TotalTrackKeys));
 	TArray<float> PoseRotationData;
 	//PoseRotationData.SetNumZeroed(OutNames.Num() * (TotalTrackKeys));
 	TArray<FVector> PoseScaleData;
-	PoseScaleData.SetNumZeroed(BonesTrackNames.Num() * (TotalTrackKeys + 1));
+	PoseScaleData.SetNumZeroed(OutNames.Num() * (TotalTrackKeys + 1));
 
 	TArray<float> LocalLocationData;
 	//LocalLocationData.SetNumZeroed(OutNames.Num() * (TotalTrackKeys));
 	TArray<float> LocalRotationData;
 	//LocalRotationData.SetNumZeroed(OutNames.Num() * (TotalTrackKeys));
 	TArray<FVector> LocalScaleData;
-	LocalScaleData.SetNumZeroed(BonesTrackNames.Num() * (TotalTrackKeys + 1));
+	LocalScaleData.SetNumZeroed(OutNames.Num() * (TotalTrackKeys + 1));
 
 
 	TArray<int32> PrimIndices;
 	int PrimitiveCount = 0;
-	int BoneCount = BonesTrackNames.Num();
+	int BoneCount = OutNames.Num();
 	int RefBoneCount = RefSkeleton.GetRefBoneInfo().Num();
 	TArray<FString> BoneNames;
 	TArray<FString> BonePaths;
-	TArray<FString> UnrealSkeletonPaths;
-	
-	TArray< TMap<int, FTransform>> Frames;
-	TMap<int, int> BoneIndexCounterMap;
-	// AnimCurve data is stored in the fbx_custom_attributes dictionary which is stored on root joints for each frame
-	// For any joint that is not the "root" join, the dict can be empty.
-	// Note that we have to add an extra frame to the data for the topology frame.
-	TArray<FString> FbxCustomAttributes;
-	FbxCustomAttributes.SetNum(BonesTrackNames.Num() * (TotalTrackKeys+1));
+	//Points.SetNumZeroed(OutNames.Num() * TotalTrackKeys * 3);
 
-	// Map Bone Indexes (from skeleton) to indexes for output data
-	// since animated bones are typically a subset of the bones from the skeleton.
-	int RootBoneIndex = INDEX_NONE;
-	{
-		int BoneNameCounter = 0;
-		for (FName AnimBoneName : BonesTrackNames)
-		{
-			int32 BoneIndex = Skeleton->GetReferenceSkeleton().FindBoneIndex(AnimBoneName);
-			BoneIndexCounterMap.Add(BoneIndex, BoneNameCounter);
-			if (AnimBoneName == "root")
-			{
-				RootBoneIndex = BoneNameCounter;
-			}
-			BoneNameCounter++;
-		}
-	}
-
+	// 
+	TMap<int, TArray<FTransform>> FrameMap;  //For Each KeyFrame, Store Array of transforms (one for each bone)
 	for (int KeyFrame = 0; KeyFrame < TotalTrackKeys; KeyFrame++)
 	{
 		int32 BoneIndex = 0;
 		TArray<FTransform> KeyBoneTransforms;
 		//for each bone
-		TMap<int, FTransform> SingleFrame;
 		for (const FMeshBoneInfo& MeshBoneInfo : RefSkeleton.GetRefBoneInfo())
 		{
 			//add that tracks keys
@@ -555,84 +474,185 @@ FUnrealAnimationTranslator::AddBoneTracksToNode(HAPI_NodeId& NewNodeId, UAnimSeq
 				TArray<FTransform>& TransformArray = TrackMap[MeshBoneInfo.Name];
 				FTransform KeyBoneTransform = TransformArray[KeyFrame];
 				KeyBoneTransforms.Add(KeyBoneTransform);
-				SingleFrame.Add(BoneIndex, KeyBoneTransform);
+
 			}
-			
 			BoneIndex++;
 		}
-
-		if (RootBoneIndex != INDEX_NONE)
-		{
-			// Sample anim curves and store the data on the root bone for this keyframe.
-			// Note that we're skipping over the topology frame (hence the Keyframe+1).
-			const int DataIndex = (KeyFrame+1)*BoneCount + RootBoneIndex;
-			const float SampleTime = KeyFrame * FrameRateInterval;
-
-			// Sample anim curve data for the root bone and store it in a JSON object for easy serialization.
-			TSharedPtr<FJsonObject> JSONObject = MakeShareable(new FJsonObject);
-
-			// Sample all the curves for the current time value
-			const FAnimationCurveData& CurveData = DataModel->GetCurveData();
-			TArray<FFloatCurve> FloatCurves = CurveData.FloatCurves;
-			for (const FFloatCurve& Curve : FloatCurves)
-			{
-				float Sample = Curve.Evaluate(SampleTime);
-#if ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION >= 3
-				JSONObject->SetNumberField(Curve.GetName().ToString(), Sample);
-#else
-				JSONObject->SetNumberField(Curve.Name.DisplayName.ToString(), Sample);
-#endif
-			}
-			
-			FbxCustomAttributes[DataIndex] = FHoudiniEngineUtils::JSONToString(JSONObject);
-		}
-		
-		Frames.Add(SingleFrame);
+		FrameMap.Add(KeyFrame, KeyBoneTransforms);
 	}
 	TArray<int32> FrameIndexData;
 	TArray<float> TimeData;
-	
+	//TimeData.SetNumZeroed(OutNames.Num()* (TotalTrackKeys));
+	//TimeData.SetNumZeroed(PrimitiveCount);
 
-	bool AppendFirstFrame = true;  //topology frame
-	TMap<FName, FMeshBoneInfo> BoneInfos;
-
-	for (const FMeshBoneInfo& MeshBoneInfo : Skeleton->GetReferenceSkeleton().GetRefBoneInfo())
+	bool AppendFirstFrame = true;
+	if (AppendFirstFrame)
 	{
-		BoneInfos.Add(MeshBoneInfo.Name, MeshBoneInfo);
-	}
-	
-	//For Each Key Frame ( eg 1-60)
-	// We'll be using the FrameOffset to inject the first frame twice for the MotionClip topology frame.
-	int FrameOffset = 0;
-	for (int FrameIndex = 0; FrameIndex < TotalTrackKeys+1; FrameIndex++)
-	{
-		if (FrameIndex > 0)
+		//For Each Key Frame ( eg 1-60)
+		for (int i = 0; i < 1; i++)
 		{
-			FrameOffset = -1; 
+			int32 BoneIndex = 0;
+
+			//for each bone
+			for (const FMeshBoneInfo& MeshBoneInfo : RefSkeleton.GetRefBoneInfo())
+			{
+				//add that tracks keys
+				if (TrackMap.Contains(MeshBoneInfo.Name))
+				{
+					UE_LOG(LogTemp, Log, TEXT("[CLS::AddBoneTracksToNode] Calculating Pose Transform for bone: %s"), *MeshBoneInfo.Name.ToString());
+					//check BoneIndex is correct
+					FTransform PoseTransform = FUnrealAnimationTranslator::GetCompSpacePoseTransformForBone(FrameMap[i], RefSkeleton, BoneIndex);
+
+					//alt
+					const TArray<FTransform>& LocalBones = FrameMap[i];
+					FTransform LocalBoneTransform = LocalBones[BoneIndex];
+
+					TArray<FTransform>& TransformArray = TrackMap[MeshBoneInfo.Name];
+
+					//FVector Location = TransformArray[i].GetLocation();
+					FVector PoseLocation = PoseTransform.GetLocation();
+					Points.Add(PoseLocation.X * 0.01);
+					Points.Add(PoseLocation.Z * 0.01);  //swapping and scaling
+					Points.Add(PoseLocation.Y * 0.01);
+					PoseLocationData.Add(PoseLocation.X);
+					PoseLocationData.Add(PoseLocation.Y);
+					PoseLocationData.Add(PoseLocation.Z);
+					PoseScaleData.Add(PoseTransform.GetScale3D());
+
+
+					//--------------------4x4LocalTransform Matrix 
+					int32 LocalOffSet = i * OutNames.Num() * 4 * 4 + (BoneIndex * 4 * 4);
+
+					//Preconvert Rotation
+					FQuat LocalQ = LocalBoneTransform.GetRotation();
+					LocalQ = FQuat(LocalQ.X, LocalQ.Z, LocalQ.Y, -LocalQ.W) * FQuat::MakeFromEuler({ 90.f, 0.f, 0.f });
+					//LocalBoneTransform.SetRotation(LocalQ);
+					LocalBoneTransform.SetRotation(FQuat::MakeFromEuler({ 0.f, 0.f, 0.f }));//first frame is zero
+
+					//Preconvert translation
+					FVector LocalLocation = LocalBoneTransform.GetLocation();
+					LocalLocationData.Add(LocalLocation.X * 0.01);
+					LocalLocationData.Add(LocalLocation.Z * 0.01);
+					LocalLocationData.Add(LocalLocation.Y * 0.01);
+					//reassemble transform
+					//LocalBoneTransform.SetLocation(LocalLocation);
+					LocalBoneTransform.SetLocation(FVector::ZeroVector);//first frame is zero
+
+
+					FMatrix M44Local = LocalBoneTransform.ToMatrixWithScale();
+					//FMatrix M44 = transform.ToMatrixWithScale();
+					FMatrix M44LocalInverse = M44Local.Inverse();  //see pCaptData property
+					//TODO Validate inverse and conversion
+
+					int32 row = 0;
+					int32 col = 0;
+					for (int32 idx = 0; idx < 16; idx++)
+					{
+						//XFormsData[16 * BoneIndex + i] = M44.M[row][col];
+						LocalTransformData[LocalOffSet + idx] = M44Local.M[row][col];
+						col++;
+						if (col > 3)
+						{
+							row++;
+							col = 0;
+						}
+					}
+					//-------------------4x4LocalTransform Matrix 
+
+					//FQuat LocalQ = LocalBoneTransform.GetRotation();
+					//LocalQ = FQuat(LocalQ.X, LocalQ.Z, LocalQ.Y, -LocalQ.W) * FQuat::MakeFromEuler({ 90.f, 0.f, 0.f });
+
+					//LocalBoneTransform.SetRotation(LocalQ);
+
+					//FMatrix M44Local = FRotationMatrix::Make(LocalQ.Rotator());
+					//LocalTransformData[i * OutNames.Num() * 4 * 4 + (BoneIndex * 4 * 4)] = BoneIndex;
+
+
+					// ----------------------------------------------------------------------------------------------------
+					// <VA>
+					// ----------------------------------------------------------------------------------------------------
+					// Adapted from FHoudiniEngineUtils::TranslateUnrealTransform
+					// Convert the Component Space bone transform from LHCS (Z-Up) to RHCS (Y-Up), and add a 90 degree
+					// rotation around the X-axis to generate data that matches the FBX Anim Importer SOP (otherwise we're
+					// going to have round tripping nightmares.
+					FQuat PoseQ = PoseTransform.GetRotation();
+					PoseQ = FQuat(PoseQ.X, PoseQ.Z, PoseQ.Y, -PoseQ.W) * FQuat::MakeFromEuler({ 90.f, 0.f, 0.f });
+					// We need to do some swizzling and sign manipulation in order to convert our Quaternion to Euler representation
+
+					FRotator PoseR = PoseQ.Rotator();
+					PoseR = FRotator(-PoseR.Pitch, PoseR.Yaw, -PoseR.Roll);
+					PoseRotationData.Add(PoseR.Roll);
+					PoseRotationData.Add(PoseR.Pitch);
+					PoseRotationData.Add(PoseR.Yaw);
+
+					// ----------------------------------------------------------------------------------------------------
+					// <VA>
+					// ----------------------------------------------------------------------------------------------------
+					// We convert our quaternion, but don't take into account the Euler swizzle ? Math is weird.
+					FMatrix M44Pose = FRotationMatrix::Make(PoseQ.Rotator());
+					//TODO Validate inverse and conversion
+
+					//Transpose Matrix
+					//int32 FrameIndex = 0;
+						//XFormsData[16 * BoneIndex + i] = M44.M[row][col];
+						//LocalTransformData[OffSet + idx] = M44.M[row][col];
+						//FrameIndex++;
+					int32 WorldOffSet = i * OutNames.Num() * 3 * 3 + (BoneIndex * 3 * 3);
+					UE_LOG(LogTemp, Log, TEXT("[CLS::AddBoneTracksToNode] BoneIndex: %d, WorldOffset: %d"), BoneIndex, WorldOffSet);
+					UE_LOG(LogTemp, Log, TEXT("[CLS::AddBoneTracksToNode] WorldTransformData: %s"), *M44Pose.ToString());
+					WorldTransformData[WorldOffSet + 0] = M44Pose.M[0][0];
+					WorldTransformData[WorldOffSet + 1] = M44Pose.M[0][1];
+					WorldTransformData[WorldOffSet + 2] = M44Pose.M[0][2];
+					WorldTransformData[WorldOffSet + 3] = M44Pose.M[1][0];
+					WorldTransformData[WorldOffSet + 4] = M44Pose.M[1][1];
+					WorldTransformData[WorldOffSet + 5] = M44Pose.M[1][2];
+					WorldTransformData[WorldOffSet + 6] = M44Pose.M[2][0];
+					WorldTransformData[WorldOffSet + 7] = M44Pose.M[2][1];
+					WorldTransformData[WorldOffSet + 8] = M44Pose.M[2][2];
+
+					if (BoneIndex > 0)
+					{
+						PrimIndices.Add((i * BoneCount) + MeshBoneInfo.ParentIndex);
+						PrimIndices.Add((i * BoneCount) + BoneIndex);
+						FrameIndexData.Add(i);
+						TimeData.Add(i * FrameRate);
+						PrimitiveCount++;
+					}
+					BoneNames.Add(MeshBoneInfo.Name.ToString());
+					BonePaths.Add(FUnrealAnimationTranslator::GetBonePathForBone(FrameMap[i], RefSkeleton, BoneIndex));
+					BoneIndex++;
+				}
+				else
+				{
+					HOUDINI_LOG_WARNING(TEXT("Missing Bone"));
+				}
+			}
 		}
-		
-		int32 BoneRefIndex = 0;
-		int32 BoneDataIndex = 0;
+	}//AppendFirstFrame
+
+	// 
+	//For Each Key Frame ( eg 1-60)
+	for (int i = 0; i < TotalTrackKeys; i++)
+	{
+		int32 BoneIndex = 0;
+
 		//for each bone
-		for (FName KeyBoneName : BonesTrackNames)
+		for (const FMeshBoneInfo& MeshBoneInfo : RefSkeleton.GetRefBoneInfo())
 		{
-			BoneRefIndex = Skeleton->GetReferenceSkeleton().FindBoneIndex(KeyBoneName);
-			const FMeshBoneInfo& MeshBoneInfo = BoneInfos.FindChecked(KeyBoneName);
 			//add that tracks keys
 			if (TrackMap.Contains(MeshBoneInfo.Name))
 			{
-				FTransform PoseTransform = FUnrealAnimationTranslator::GetCompSpacePoseTransformForBoneMap(Frames[FrameIndex+FrameOffset], RefSkeleton, BoneRefIndex);
+				UE_LOG(LogTemp, Log, TEXT("[CLS::AddBoneTracksToNode] Calculating Pose Transform for bone: %s"), *MeshBoneInfo.Name.ToString());
+				//check BoneIndex is correct
+				FTransform PoseTransform = GetCompSpacePoseTransformForBone(FrameMap[i], RefSkeleton, BoneIndex);
 
 				//alt
-				FTransform LocalBoneTransform = FTransform::Identity;
-				TMap<int, FTransform>& BoneTransformMap = Frames[FrameIndex+FrameOffset];
-				if (!BoneTransformMap.Contains(BoneRefIndex))
-				{
-					LocalBoneTransform = BoneTransformMap.FindChecked(BoneRefIndex);
-				}
+				const TArray<FTransform>& LocalBones = FrameMap[i];
+				FTransform LocalBoneTransform = LocalBones[BoneIndex];
 
 				TArray<FTransform>& TransformArray = TrackMap[MeshBoneInfo.Name];
 
+				//FVector Location = TransformArray[i].GetLocation();
 				FVector PoseLocation = PoseTransform.GetLocation();
 				Points.Add(PoseLocation.X * 0.01);
 				Points.Add(PoseLocation.Z * 0.01);  //swapping and scaling
@@ -640,21 +660,27 @@ FUnrealAnimationTranslator::AddBoneTracksToNode(HAPI_NodeId& NewNodeId, UAnimSeq
 				PoseLocationData.Add(PoseLocation.X);
 				PoseLocationData.Add(PoseLocation.Y);
 				PoseLocationData.Add(PoseLocation.Z);
-				
+
+				// ----------------------------------------------------------------------------------------------------
+				// <VA>
+				// ----------------------------------------------------------------------------------------------------
 				// Adapted from FHoudiniEngineUtils::TranslateUnrealTransform
 				// Convert the Component Space bone transform from LHCS (Z-Up) to RHCS (Y-Up), and add a 90 degree
 				// rotation around the X-axis to generate data that matches the FBX Anim Importer SOP (otherwise we're
 				// going to have round tripping nightmares.
 				FQuat Q = PoseTransform.GetRotation();
 				Q = FQuat(Q.X, Q.Z, Q.Y, -Q.W) * FQuat::MakeFromEuler({ 90.f, 0.f, 0.f });
-
 				// We need to do some swizzling and sign manipulation in order to convert our Quaternion to Euler representation
+
 				FRotator PoseR = Q.Rotator();
 				PoseR = FRotator(-PoseR.Pitch, PoseR.Yaw, -PoseR.Roll);
 				PoseRotationData.Add(PoseR.Roll);
 				PoseRotationData.Add(PoseR.Pitch);
 				PoseRotationData.Add(PoseR.Yaw);
 				PoseScaleData.Add(PoseTransform.GetScale3D());
+
+				//--------------------4x4LocalTransform 
+				int32 LocalOffSet = (i + 1) * OutNames.Num() * 4 * 4 + (BoneIndex * 4 * 4);//adding 1 because of firstframe append
 
 				//Preconvert Rotation
 				FQuat LocalQ = LocalBoneTransform.GetRotation();
@@ -670,7 +696,7 @@ FUnrealAnimationTranslator::AddBoneTracksToNode(HAPI_NodeId& NewNodeId, UAnimSeq
 				//reassemble transform
 				LocalBoneTransform.SetLocation(LocalLocation);
 
-				if (BoneRefIndex == 0)
+				if (BoneIndex == 0)
 				{
 					LocalBoneTransform.SetScale3D(FVector(0.01, 0.01, 0.01));
 				}
@@ -678,34 +704,57 @@ FUnrealAnimationTranslator::AddBoneTracksToNode(HAPI_NodeId& NewNodeId, UAnimSeq
 				{
 					LocalBoneTransform.SetScale3D(FVector(1, 1, 1));
 				}
-				
-				{
-					FName BoneName = RefSkeleton.GetBoneName(BoneRefIndex);
-					int32 ParentBoneIndex = 0;
-					if (BoneRefIndex > 0)
-					{
-						ParentBoneIndex = RefSkeleton.GetParentIndex(BoneRefIndex);
-					}
 
-					FTransform ParentPoseTransform = GetCompSpacePoseTransformForBoneMap(Frames[FrameIndex+FrameOffset], RefSkeleton, ParentBoneIndex);
-					
+				FMatrix M44Local = LocalBoneTransform.ToMatrixWithScale();
+				FMatrix M44LocalInverse = M44Local.Inverse();  //see pCaptData property
+
+				int32 row = 0;
+				int32 col = 0;
+				for (int32 idx = 0; idx < 16; idx++)
+				{
+					LocalTransformData[LocalOffSet + idx] = M44Local.M[row][col];
+					col++;
+					if (col > 3)
+					{
+						row++;
+						col = 0;
+					}
+				}
+				if (true)
+				{
+					FName BoneName = RefSkeleton.GetBoneName(BoneIndex);
+					int32 ParentBoneIndex = 0;
+					if (BoneIndex > 0)
+					{
+						ParentBoneIndex = RefSkeleton.GetParentIndex(BoneIndex);
+						FName ParentBoneName = RefSkeleton.GetBoneName(ParentBoneIndex);
+					}
+					FTransform ParentPoseTransform = GetCompSpacePoseTransformForBone(FrameMap[i], RefSkeleton, ParentBoneIndex);
+
+					//FTransform PoseTransform = GetCompSpacePoseTransformForBone(FrameMap[i], RefSkeleton, BoneIndex);
 					FQuat QBone = PoseTransform.GetRotation();
 					QBone = FQuat(QBone.X, QBone.Z, QBone.Y, -QBone.W) * FQuat::MakeFromEuler({ 90.f, 0.f, 0.f });
 					PoseLocation = PoseTransform.GetLocation();
 					PoseLocation = FVector(PoseLocation.X, PoseLocation.Z, PoseLocation.Y);
 					FTransform PoseConverted = FTransform(QBone, PoseLocation);
-					
+
+					//FMatrix BonePose = FRotationMatrix::Make(QBone.Rotator());
 
 					// Get the pose-space transform for the PARENT BONE, and transform it to Houdini-space
+					//FTransform ParentPoseTransform = GetCompSpacePoseTransformForBone(FrameMap[i], RefSkeleton, BoneIndex);
 					FQuat QParent = ParentPoseTransform.GetRotation();
 					QParent = FQuat(QParent.X, QParent.Z, QParent.Y, -QParent.W) * FQuat::MakeFromEuler({ 90.f, 0.f, 0.f });
 					FVector ParentLocation = ParentPoseTransform.GetLocation();
 					ParentLocation = FVector(ParentLocation.X, ParentLocation.Z, ParentLocation.Y);
+					//FMatrix ParentPose = FRotationMatrix::Make(QParent.Rotator());
 
 					FTransform ParentConverted = FTransform(QParent, ParentLocation);
 
+
+					//FMatrix M44Local = LocalBoneTransform.ToMatrixWithScale();
+
 					FMatrix FinalLocalTransform;
-					if (BoneRefIndex == 0)
+					if (BoneIndex == 0)
 					{
 						FinalLocalTransform = PoseConverted.ToMatrixWithScale() * 0.01;
 					}
@@ -715,26 +764,29 @@ FUnrealAnimationTranslator::AddBoneTracksToNode(HAPI_NodeId& NewNodeId, UAnimSeq
 						FinalLocalTransform = (PoseConverted * ParentConverted.Inverse()).ToMatrixWithScale();
 					}
 
-					//--------------------4x4LocalTransform 
-					int32 LocalDataIndex = (FrameIndex) * BonesTrackNames.Num() * 4 * 4 + (BoneDataIndex * 4 * 4);
 
-					LocalTransformData[LocalDataIndex + 0] = FinalLocalTransform.M[0][0];
-					LocalTransformData[LocalDataIndex + 1] = FinalLocalTransform.M[0][1];
-					LocalTransformData[LocalDataIndex + 2] = FinalLocalTransform.M[0][2];
-					LocalTransformData[LocalDataIndex + 3] = FinalLocalTransform.M[0][3];
-					LocalTransformData[LocalDataIndex + 4] = FinalLocalTransform.M[1][0];
-					LocalTransformData[LocalDataIndex + 5] = FinalLocalTransform.M[1][1];
-					LocalTransformData[LocalDataIndex + 6] = FinalLocalTransform.M[1][2];
-					LocalTransformData[LocalDataIndex + 7] = FinalLocalTransform.M[1][3];
-					LocalTransformData[LocalDataIndex + 8] = FinalLocalTransform.M[2][0];
-					LocalTransformData[LocalDataIndex + 9] = FinalLocalTransform.M[2][1];
-					LocalTransformData[LocalDataIndex + 10] = FinalLocalTransform.M[2][2];
-					LocalTransformData[LocalDataIndex + 11] = FinalLocalTransform.M[2][3];
-					LocalTransformData[LocalDataIndex + 12] = FinalLocalTransform.M[3][0];
-					LocalTransformData[LocalDataIndex + 13] = FinalLocalTransform.M[3][1];
-					LocalTransformData[LocalDataIndex + 14] = FinalLocalTransform.M[3][2];
-					LocalTransformData[LocalDataIndex + 15] = FinalLocalTransform.M[3][3];
+					LocalTransformData[LocalOffSet + 0] = FinalLocalTransform.M[0][0];
+					LocalTransformData[LocalOffSet + 1] = FinalLocalTransform.M[0][1];
+					LocalTransformData[LocalOffSet + 2] = FinalLocalTransform.M[0][2];
+					LocalTransformData[LocalOffSet + 3] = FinalLocalTransform.M[0][3];
+					LocalTransformData[LocalOffSet + 4] = FinalLocalTransform.M[1][0];
+					LocalTransformData[LocalOffSet + 5] = FinalLocalTransform.M[1][1];
+					LocalTransformData[LocalOffSet + 6] = FinalLocalTransform.M[1][2];
+					LocalTransformData[LocalOffSet + 7] = FinalLocalTransform.M[1][3];
+					LocalTransformData[LocalOffSet + 8] = FinalLocalTransform.M[2][0];
+					LocalTransformData[LocalOffSet + 9] = FinalLocalTransform.M[2][1];
+					LocalTransformData[LocalOffSet + 10] = FinalLocalTransform.M[2][2];
+					LocalTransformData[LocalOffSet + 11] = FinalLocalTransform.M[2][3];
+					LocalTransformData[LocalOffSet + 12] = FinalLocalTransform.M[3][0];
+					LocalTransformData[LocalOffSet + 13] = FinalLocalTransform.M[3][1];
+					LocalTransformData[LocalOffSet + 14] = FinalLocalTransform.M[3][2];
+					LocalTransformData[LocalOffSet + 15] = FinalLocalTransform.M[3][3];
+
+					//ZZZ Test Undo
+					TMap<FName, FTransform> ZZZComponentSpaceTransforms;
+					ZZZComponentSpaceTransforms.Add(BoneName, FTransform(FinalLocalTransform));
 				}
+
 
 
 				FTransform FirstRotationConversion = FTransform(FRotator(-90, 0, 0), FVector(0.0, 0.0, 0.0), FVector(1, 1, 1));
@@ -746,40 +798,52 @@ FUnrealAnimationTranslator::AddBoneTracksToNode(HAPI_NodeId& NewNodeId, UAnimSeq
 				LocalRotationData.Add(LocalR.Roll);
 				LocalRotationData.Add(LocalR.Yaw);
 
+
+				// ----------------------------------------------------------------------------------------------------
+				// <VA>
+				// ----------------------------------------------------------------------------------------------------
+				// We convert our quaternion, but don't take into account the Euler swizzle ? Math is weird.
 				FMatrix M44Pose = FRotationMatrix::Make(Q.Rotator()) * 0.01;
 
-				int32 WorldDataIndex = (FrameIndex) * BonesTrackNames.Num() * 3 * 3 + (BoneDataIndex * 3 * 3);
-				WorldTransformData[WorldDataIndex + 0] = M44Pose.M[0][0];
-				WorldTransformData[WorldDataIndex + 1] = M44Pose.M[0][1];
-				WorldTransformData[WorldDataIndex + 2] = M44Pose.M[0][2];
-				WorldTransformData[WorldDataIndex + 3] = M44Pose.M[1][0];
-				WorldTransformData[WorldDataIndex + 4] = M44Pose.M[1][1];
-				WorldTransformData[WorldDataIndex + 5] = M44Pose.M[1][2];
-				WorldTransformData[WorldDataIndex + 6] = M44Pose.M[2][0];
-				WorldTransformData[WorldDataIndex + 7] = M44Pose.M[2][1];
-				WorldTransformData[WorldDataIndex + 8] = M44Pose.M[2][2];
+
+
+				//TODO Validate inverse and conversion
+
+				//Transpose Matrix
+				//int32 FrameIndex = 0;
+					//XFormsData[16 * BoneIndex + i] = M44.M[row][col];
+					//LocalTransformData[OffSet + idx] = M44.M[row][col];
+					//FrameIndex++;
+				int32 WorldOffSet = (i + 1) * OutNames.Num() * 3 * 3 + (BoneIndex * 3 * 3);//adding 1 because of firstframe append
+				UE_LOG(LogTemp, Log, TEXT("[CLS::AddBoneTracksToNode] BoneIndex: %d, WorldOffset: %d"), BoneIndex, WorldOffSet);
+				UE_LOG(LogTemp, Log, TEXT("[CLS::AddBoneTracksToNode] WorldTransformData: %s"), *M44Pose.ToString());
+				WorldTransformData[WorldOffSet + 0] = M44Pose.M[0][0];
+				WorldTransformData[WorldOffSet + 1] = M44Pose.M[0][1];
+				WorldTransformData[WorldOffSet + 2] = M44Pose.M[0][2];
+				WorldTransformData[WorldOffSet + 3] = M44Pose.M[1][0];
+				WorldTransformData[WorldOffSet + 4] = M44Pose.M[1][1];
+				WorldTransformData[WorldOffSet + 5] = M44Pose.M[1][2];
+				WorldTransformData[WorldOffSet + 6] = M44Pose.M[2][0];
+				WorldTransformData[WorldOffSet + 7] = M44Pose.M[2][1];
+				WorldTransformData[WorldOffSet + 8] = M44Pose.M[2][2];
 
 				// WorldTransformData[i * OutNames.Num() * 3 * 3] = BoneIndex;
-				const float TimeValue = FrameIndex > 0 ? (FrameIndex-1) * FrameRateInterval : 0.f;
-				if (BoneRefIndex > 0)
+				if (BoneIndex > 0)
 				{
-					const int32 ParentDataIndex = BoneIndexCounterMap.FindChecked(MeshBoneInfo.ParentIndex);
-					PrimIndices.Add((FrameIndex * BoneCount) + ParentDataIndex);
-					PrimIndices.Add((FrameIndex * BoneCount) + BoneDataIndex);
-					FrameIndexData.Add(FrameIndex);
-					// The topology frame (FrameIndex = 0) and the first anim frame (FrameIndex = 1) Should have time = 0.
-					TimeData.Add(TimeValue);
+					PrimIndices.Add((i * BoneCount) + MeshBoneInfo.ParentIndex);
+					PrimIndices.Add((i * BoneCount) + BoneIndex);
+					FrameIndexData.Add(i + 1); //already appended a frame
+					TimeData.Add(i * FrameRate);
 					PrimitiveCount++;
 				}
 				BoneNames.Add(MeshBoneInfo.Name.ToString());
-				BonePaths.Add(GetBonePathForBone(RefSkeleton, BoneRefIndex));
-				UnrealSkeletonPaths.Add(SkeletonPathName);
+				BonePaths.Add(GetBonePathForBone(FrameMap[i], RefSkeleton, BoneIndex));
+				BoneIndex++;
 			}
 			else
 			{
 				HOUDINI_LOG_WARNING(TEXT("Missing Bone"));
 			}
-			BoneDataIndex++;
 		}
 
 	}
@@ -879,27 +943,6 @@ FUnrealAnimationTranslator::AddBoneTracksToNode(HAPI_NodeId& NewNodeId, UAnimSeq
 		BonePaths, NewNodeId, 0, "path", AttributeInfoName), false);
 
 	//--------------------------------------------------------------------------------------------------------------------- 
-	// unreal_skeleton
-	//---------------------------------------------------------------------------------------------------------------------
-	HAPI_AttributeInfo UnrealSkeletonInfo;
-	FHoudiniApi::AttributeInfo_Init(&AttributeInfoName);
-	UnrealSkeletonInfo.count = Part.pointCount;
-	UnrealSkeletonInfo.tupleSize = 1;
-	UnrealSkeletonInfo.exists = true;
-	UnrealSkeletonInfo.owner = HAPI_ATTROWNER_POINT;
-	UnrealSkeletonInfo.storage = HAPI_STORAGETYPE_STRING;
-	UnrealSkeletonInfo.originalOwner = HAPI_ATTROWNER_INVALID;
-
-	HOUDINI_CHECK_ERROR_RETURN(FHoudiniApi::AddAttribute(
-		FHoudiniEngine::Get().GetSession(),
-		NewNodeId, 0, HAPI_UNREAL_ATTRIB_SKELETON, &UnrealSkeletonInfo), false);
-
-
-	HOUDINI_CHECK_ERROR_RETURN(FHoudiniEngineUtils::HapiSetAttributeStringData(
-		UnrealSkeletonPaths, NewNodeId, 0, HAPI_UNREAL_ATTRIB_SKELETON, UnrealSkeletonInfo), false);
-
-
-	//--------------------------------------------------------------------------------------------------------------------- 
 	// Time
 	//---------------------------------------------------------------------------------------------------------------------
 	HAPI_AttributeInfo TimeInfo;
@@ -932,7 +975,7 @@ FUnrealAnimationTranslator::AddBoneTracksToNode(HAPI_NodeId& NewNodeId, UAnimSeq
 	FrameIndexInfo.owner = HAPI_ATTROWNER_PRIM;
 	FrameIndexInfo.storage = HAPI_STORAGETYPE_INT;
 	FrameIndexInfo.originalOwner = HAPI_ATTROWNER_INVALID;
-	
+
 	HOUDINI_CHECK_ERROR_RETURN(FHoudiniApi::AddAttribute(
 		FHoudiniEngine::Get().GetSession(), NewNodeId, 0,
 		"frame", &FrameIndexInfo), false);
@@ -960,7 +1003,7 @@ FUnrealAnimationTranslator::AddBoneTracksToNode(HAPI_NodeId& NewNodeId, UAnimSeq
 
 	HOUDINI_CHECK_ERROR_RETURN(FHoudiniApi::AddAttribute(
 		FHoudiniEngine::Get().GetSession(), NewNodeId, 0,
-		"in_localtransform", &LocalTransformInfo), false);
+		"ltransform", &LocalTransformInfo), false);
 
 	TArray<int32> SizesLocalTransformArray;
 	for (int i = 0; i < Part.pointCount; i++)
@@ -969,7 +1012,7 @@ FUnrealAnimationTranslator::AddBoneTracksToNode(HAPI_NodeId& NewNodeId, UAnimSeq
 	}
 	HOUDINI_CHECK_ERROR_RETURN(FHoudiniApi::SetAttributeFloatArrayData(
 		FHoudiniEngine::Get().GetSession(), NewNodeId,
-		0, "in_localtransform", &LocalTransformInfo, LocalTransformData.GetData(),
+		0, "ltransform", &LocalTransformInfo, LocalTransformData.GetData(),
 		LocalTransformData.Num(), SizesLocalTransformArray.GetData(), 0, SizesLocalTransformArray.Num()), false);
 
 	//--------------------------------------------------------------------------------------------------------------------- 
@@ -989,7 +1032,7 @@ FUnrealAnimationTranslator::AddBoneTracksToNode(HAPI_NodeId& NewNodeId, UAnimSeq
 
 	HOUDINI_CHECK_ERROR_RETURN(FHoudiniApi::AddAttribute(
 		FHoudiniEngine::Get().GetSession(), NewNodeId, 0,
-		"in_transform", &WorldTransformInfo), false);
+		"worldtransform", &WorldTransformInfo), false);
 
 	TArray<int32> SizesWorldTransformArray;
 	for (int i = 0; i < Part.pointCount; i++)
@@ -998,66 +1041,70 @@ FUnrealAnimationTranslator::AddBoneTracksToNode(HAPI_NodeId& NewNodeId, UAnimSeq
 	}
 	HOUDINI_CHECK_ERROR_RETURN(FHoudiniApi::SetAttributeFloatArrayData(
 		FHoudiniEngine::Get().GetSession(), NewNodeId,
-		0, "in_transform", &WorldTransformInfo, WorldTransformData.GetData(),
+		0, "worldtransform", &WorldTransformInfo, WorldTransformData.GetData(),
 		WorldTransformData.Num(), SizesWorldTransformArray.GetData(), 0, SizesWorldTransformArray.Num()), false);
 
-	//--------------------------------------------------------------------------------------------------------------------- 
-	// fbx_custom_attributes
-	//---------------------------------------------------------------------------------------------------------------------
-	HAPI_AttributeInfo CustomAttrsInfo;
-	FHoudiniApi::AttributeInfo_Init(&CustomAttrsInfo);
-	CustomAttrsInfo.count = Part.pointCount;
-	CustomAttrsInfo.tupleSize = 1;
-	CustomAttrsInfo.exists = true;
-	CustomAttrsInfo.owner = HAPI_ATTROWNER_POINT;
-	CustomAttrsInfo.storage = HAPI_STORAGETYPE_DICTIONARY;
-	CustomAttrsInfo.originalOwner = HAPI_ATTROWNER_INVALID;
+	//Iterate over BoneTracks
+	for (FName TrackName : OutNames)
+	{
+		TArray<FTransform> ThisTrackTransforms;
+		DataModel->GetBoneTrackTransforms(TrackName, ThisTrackTransforms);
+		FString DetailAttributeName = FString::Printf(TEXT("%s_transforms"), *TrackName.ToString());
+		TotalTrackKeys = ThisTrackTransforms.Num();
+		TArray<float> TrackFloatKeys;  //for pCaptData property
+		TrackFloatKeys.SetNumZeroed(TotalTrackKeys * 20);
 
-	HOUDINI_CHECK_ERROR_RETURN(FHoudiniApi::AddAttribute(
-		FHoudiniEngine::Get().GetSession(), NewNodeId, 0,
-		"fbx_custom_attributes", &CustomAttrsInfo), false);
+		HAPI_AttributeInfo TrackInfo;
+		FHoudiniApi::AttributeInfo_Init(&TrackInfo);
+		TrackInfo.count = 1;
+		TrackInfo.tupleSize = 20;  //The pCaptData property property contains exactly 20 floats
+		TrackInfo.exists = true;
+		TrackInfo.owner = HAPI_ATTROWNER_DETAIL;
+		TrackInfo.storage = HAPI_STORAGETYPE_FLOAT_ARRAY;
+		TrackInfo.originalOwner = HAPI_ATTROWNER_DETAIL;
+		TrackInfo.totalArrayElements = TrackFloatKeys.Num(); //(keys * 20)
+		TrackInfo.typeInfo = HAPI_AttributeTypeInfo::HAPI_ATTRIBUTE_TYPE_NONE;
 
-	//Dict string data
-	FHoudiniEngineUtils::HapiSetAttributeDictionaryData(
-		FbxCustomAttributes,
-		NewNodeId, 0, "fbx_custom_attributes", CustomAttrsInfo
-		);
-	
-	//--------------------------------------------------------------------------------------------------------------------- 
-	// clipinfo
-	//---------------------------------------------------------------------------------------------------------------------
+		int FrameIndex = 0;
+		for (FTransform transform : ThisTrackTransforms)
+		{
+			//set key data
+			FMatrix M44 = transform.ToMatrixWithScale();
+			FMatrix M44Inverse = M44.Inverse();  //see pCaptData property
+			//TODO Validate inverse and conversion
 
-	// Output the JSON to a String
-	const float AnimDuration = AnimSequence->GetPlayLength();
-	const float FrameRateDecimal = FrameRate.AsDecimal();
-	
-	FString ClipInfoString = TEXT( R"({ "name":"{0}", "range":[{1}, {2}], "rate":{3}, "source_range":[{4}, {5}], "source_rate":{6} })" );
-	ClipInfoString = FString::Format(*ClipInfoString, {
-		AnimSequence->GetName(), // name
-		0.f, // range[0]
-		AnimDuration, // range[1]
-		FrameRateDecimal, // rate
-		0.f, // source_range[0]
-		AnimDuration, // source_range[1]
-		FrameRateDecimal // source_rate
-	});
-	
-	HAPI_AttributeInfo ClipInfo;
-	FHoudiniApi::AttributeInfo_Init(&ClipInfo);
-	ClipInfo.count = 1; 
-	ClipInfo.tupleSize = 1;
-	ClipInfo.exists = true;
-	ClipInfo.owner = HAPI_ATTROWNER_DETAIL;
-	ClipInfo.storage = HAPI_STORAGETYPE_DICTIONARY;
-	ClipInfo.originalOwner = HAPI_ATTROWNER_INVALID;
-	
-	HOUDINI_CHECK_ERROR_RETURN(FHoudiniApi::AddAttribute(
-		FHoudiniEngine::Get().GetSession(),
-		NewNodeId, 0, "clipinfo", &ClipInfo), false);
+			int32 row = 0;
+			int32 col = 0;
+			for (int32 i = 0; i < 16; i++)
+			{
+				//XFormsData[16 * BoneIndex + i] = M44.M[row][col];
+				TrackFloatKeys[20 * FrameIndex + i] = M44Inverse.M[row][col];
+				col++;
+				if (col > 3)
+				{
+					row++;
+					col = 0;
+				}
+			}
+			TrackFloatKeys[20 * FrameIndex + 16] = 1.0f;//Top height
+			TrackFloatKeys[20 * FrameIndex + 17] = 1.0f;//Bottom Height
+			TrackFloatKeys[20 * FrameIndex + 18] = 1.0f;//Ratio of (top x radius of tube)/(bottom x radius of tube) adjusted for orientation
+			TrackFloatKeys[20 * FrameIndex + 19] = 1.0f;//Ratio of (top z radius of tube)/(bottom z radius of tube) adjusted for orientation
+			FrameIndex++;
+		}
+		HOUDINI_CHECK_ERROR_RETURN(FHoudiniApi::AddAttribute(
+			FHoudiniEngine::Get().GetSession(), NewNodeId, 0,
+			TCHAR_TO_ANSI(*DetailAttributeName), &TrackInfo), false);
 
-	TArray<FString> ClipInfoData = { ClipInfoString };
-	FHoudiniEngineUtils::HapiSetAttributeDictionaryData(ClipInfoData, NewNodeId, 0, "clipinfo", ClipInfo);
-	
+		TArray<int32> SizesTrackDataArray;
+		SizesTrackDataArray.Add(TotalTrackKeys);
+
+		HOUDINI_CHECK_ERROR_RETURN(FHoudiniApi::SetAttributeFloatArrayData(
+			FHoudiniEngine::Get().GetSession(), NewNodeId,
+			0, TCHAR_TO_ANSI(*DetailAttributeName), &TrackInfo, TrackFloatKeys.GetData(),
+			TrackInfo.totalArrayElements, SizesTrackDataArray.GetData(), 0, TrackInfo.count), false);
+
+	}
 #endif
 	return true;
 }

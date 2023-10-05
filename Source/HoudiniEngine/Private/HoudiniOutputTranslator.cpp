@@ -77,8 +77,7 @@
 #include "HoudiniLevelInstanceUtils.h"
 #include "Engine/UserDefinedStruct.h"
 #include "HoudiniHLODLayerUtils.h"
-#include "HoudiniAnimationTranslator.h"
-#include "HoudiniFoliageUtils.h"
+#include <HoudiniAnimationTranslator.h>
 
 #define LOCTEXT_NAMESPACE HOUDINI_LOCTEXT_NAMESPACE
 
@@ -489,10 +488,6 @@ FHoudiniOutputTranslator::UpdateOutputs(
 
 		case EHoudiniOutputType::Skeletal:
 		{
-			FHoudiniSkeletalMeshTranslator::CreateAllSkeletalMeshesAndComponentsFromHoudiniOutput(
-				CurOutput, PackageParams, AllOutputMaterials, OuterComponent);
-
-			NumVisibleOutputs++;
 			break;
 		}
 
@@ -1712,14 +1707,31 @@ FHoudiniOutputTranslator::BuildAllOutputs(
 				EHoudiniPartType CurrentPartType = EHoudiniPartType::Invalid;
 				EHoudiniInstancerType CurrentInstancerType = EHoudiniInstancerType::Invalid;
 
-				bool bInstancerTypeFound = bIsMotionClip || bIsSkeletalMesh;
+				bool bTypeFound = false;
 				bool bIsGeometryCollection = false;
+				bool bIsMotionClip = false;
+				bool bIsSkeletalMesh = false;
 
-				if (CurrentHapiPartInfo.type == HAPI_PARTTYPE_INSTANCER && !bInstancerTypeFound)
+				if (CurrentHapiPartInfo.type == HAPI_PARTTYPE_MESH)
+				{
+					//TODO
+					//bIsSkeletalMesh = IsThisGeometryASkeleton(...);
+					bTypeFound = false;
+				}
+
+				if (CurrentHapiPartInfo.type == HAPI_PARTTYPE_MESH && !bTypeFound)
+				{
+					//TODO IMPLEMENT
+					bIsMotionClip = FHoudiniAnimationTranslator::IsAnimationPart(CurrentHapiGeoInfo.nodeId, CurrentHapiPartInfo.id);
+					bTypeFound = true;
+				}
+
+				if (CurrentHapiPartInfo.type == HAPI_PARTTYPE_INSTANCER && !bTypeFound)
 				{
 					bIsGeometryCollection = FHoudiniGeometryCollectionTranslator::IsGeometryCollectionInstancerPart(CurrentHapiGeoInfo.nodeId, CurrentHapiPartInfo.id);
-					bInstancerTypeFound = true;
+					bTypeFound = true;
 				}
+				
 				
 				switch (CurrentHapiPartInfo.type)
 				{
@@ -1747,13 +1759,11 @@ FHoudiniOutputTranslator::BuildAllOutputs(
 
 							if (bIsSkeletalMesh)
 							{
-								CurrentPartType = FindSkeletalMeshPartType(CurrentHapiPartInfo.id);
+								CurrentPartType = EHoudiniPartType::SkeletalMesh;
 							}
 							else if (bIsMotionClip)
 							{
-								// We don't care about tracking Mesh objects for motion clips.
-								// We just want to track the packed primitives, and extract the mesh data in the translator.
-								continue;
+								CurrentPartType = EHoudiniPartType::AnimSequence;
 							}
 							else if (CurrentHapiObjectInfo.isInstancer)
 							{
@@ -1847,13 +1857,8 @@ FHoudiniOutputTranslator::BuildAllOutputs(
 						CurrentPartType = EHoudiniPartType::Instancer;
 						if (bIsMotionClip)
 						{
-							CurrentPartType = EHoudiniPartType::MotionClip;
-							CurrentInstancerType = EHoudiniInstancerType::MotionClip;
-						}
-						else if (bIsSkeletalMesh)
-						{
-							CurrentPartType = FindSkeletalMeshPartType(CurrentHapiPartInfo.id);
-							CurrentInstancerType = EHoudiniInstancerType::SkeletalMesh;
+							CurrentPartType = EHoudiniPartType::AnimSequence;
+							CurrentInstancerType = EHoudiniInstancerType::Invalid;
 						}
 						else if (bIsGeometryCollection)
 						{

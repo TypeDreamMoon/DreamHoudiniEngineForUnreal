@@ -386,7 +386,25 @@ FHoudiniPackageParams::CreatePackageForObject(FString& OutPackageName, int32 InB
 	return NewPackage;
 }
 
-UObject* FHoudiniPackageParams::CreateObjectAndPackageFromClass(UClass* Class, UObject* TemplateObject) const
+// Fixes link error with the template function under
+void TemplateFixer()
+{
+	FHoudiniPackageParams PP;
+	UStaticMesh* SM = PP.CreateObjectAndPackage<UStaticMesh>();
+	USkeletalMesh* SK = PP.CreateObjectAndPackage<USkeletalMesh>();
+	UAnimSequence* Anim = PP.CreateObjectAndPackage<UAnimSequence>();
+	USkeleton* Skelly = PP.CreateObjectAndPackage<USkeleton>();
+	UHoudiniStaticMesh* HSM = PP.CreateObjectAndPackage<UHoudiniStaticMesh>();
+	UGeometryCollection* GC = PP.CreateObjectAndPackage<UGeometryCollection>();
+	UDataTable* DT = PP.CreateObjectAndPackage<UDataTable>();
+	UFoliageType_InstancedStaticMesh * ISM = PP.CreateObjectAndPackage<UFoliageType_InstancedStaticMesh>();
+#if ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION >= 2
+	UDataLayerAsset* DLA = PP.CreateObjectAndPackage<UDataLayerAsset>();
+#endif
+}
+
+template<typename T>
+T* FHoudiniPackageParams::CreateObjectAndPackage(T * TemplateObject) const
 {
 	// Create the package for the object
 	FString NewObjectName;
