@@ -27,6 +27,9 @@
 #pragma once
 
 #include "HAPI/HAPI_Common.h"
+#include "HoudiniEnginePrivatePCH.h"
+
+#include "Containers/UnrealString.h"
 
 class UAnimSequence;
 

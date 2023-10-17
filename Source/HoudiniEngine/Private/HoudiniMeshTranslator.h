@@ -50,7 +50,6 @@ class UHoudiniStaticMeshComponent;
 
 struct FKAggregateGeom;
 struct FHoudiniGenericAttribute;
-struct FHoudiniMeshesToBuild;
 
 UENUM()
 enum class EHoudiniSplitType : uint8
@@ -295,8 +294,6 @@ struct HOUDINIENGINE_API FHoudiniMeshTranslator
 		// Legacy function using RawMesh for static Mesh creation
 		bool CreateStaticMesh_RawMesh();
 
-		bool CreateStaticMeshesFromSplitGroups();
-
 		// Indicates the update is forced
 		bool ForceRebuild;
 		int32 DefaultMeshSmoothing;
@@ -371,8 +368,7 @@ struct HOUDINIENGINE_API FHoudiniMeshTranslator
 			int32 MatIndex,
 			TArray<FStaticMaterial>& FoundStaticMaterials);
 
-		UStaticMesh* CreateNewUnrealStaticMesh(const FString& InMeshIdentifierString);
-
+		UStaticMesh* CreateNewStaticMesh(const FString& InMeshIdentifierString);
 
 		UHoudiniStaticMesh* CreateNewHoudiniStaticMesh(const FString& InSplitIdentifier);
 

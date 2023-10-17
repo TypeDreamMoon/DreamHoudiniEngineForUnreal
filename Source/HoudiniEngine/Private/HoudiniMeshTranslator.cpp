@@ -87,733 +87,6 @@ static TAutoConsoleVariable<float> CVarHoudiniEngineMeshBuildTimer(
 	TEXT("When enabled, the plugin will output timings during the Mesh creation.\n")
 );
 
-bool
-FHoudiniMeshTranslator::CreateAllMeshesAndComponentsFromHoudiniOutput(
-	UHoudiniOutput* InOutput, 
-	const FHoudiniPackageParams& InPackageParams,
-	EHoudiniStaticMeshMethod InStaticMeshMethod,
-	bool bSplitMeshSupport,
-	const FHoudiniStaticMeshGenerationProperties& InSMGenerationProperties,
-	const FMeshBuildSettings& InMeshBuildSettings,
-	const TMap<FHoudiniMaterialIdentifier, UMaterialInterface*>& InAllOutputMaterials,
-	UObject* InOuterComponent,
-	bool bInTreatExistingMaterialsAsUpToDate,
-	bool bInDestroyProxies)
-{
-	if (!IsValid(InOutput))
-		return false;
-
-	if (!IsValid(InPackageParams.OuterPackage))
-		return false;
-
-	if (!IsValid(InOuterComponent))
-		return false;
-
-	TMap<FHoudiniOutputObjectIdentifier, FHoudiniOutputObject> NewOutputObjects;
-	TMap<FHoudiniOutputObjectIdentifier, FHoudiniOutputObject> OldOutputObjects = InOutput->GetOutputObjects();
-	TMap<FHoudiniMaterialIdentifier, UMaterialInterface*>& AssignementMaterials = InOutput->GetAssignementMaterials();
-	TMap<FHoudiniMaterialIdentifier, UMaterialInterface*>& ReplacementMaterials = InOutput->GetReplacementMaterials();
-
-	bool InForceRebuild = false; 
-	if (InOutput->HasAnyCurrentProxy() && InStaticMeshMethod != EHoudiniStaticMeshMethod::UHoudiniStaticMesh)
-	{
-		// Make sure we're not preventing refinement
-		InForceRebuild = true;
-	}
-
-	// Iterate on all of the output's HGPO, creating meshes as we go
-	for (const FHoudiniGeoPartObject& CurHGPO : InOutput->HoudiniGeoPartObjects)
-	{
-		// Not a mesh, skip
-		if (CurHGPO.Type != EHoudiniPartType::Mesh)
-			continue;
-
-		// See if we have some uproperty attributes to update on 
-		// the outer component (in most case, the HAC)
-		TArray<FHoudiniGenericAttribute> PropertyAttributes;
-		if (FHoudiniEngineUtils::GetGenericPropertiesAttributes(
-			CurHGPO.GeoId, CurHGPO.PartId,
-			true, 0, 0, 0,
-			PropertyAttributes))
-		{
-			FHoudiniEngineUtils::UpdateGenericPropertiesAttributes(
-				InOuterComponent, PropertyAttributes);
-		}
-
-		CreateStaticMeshFromHoudiniGeoPartObject(
-			CurHGPO,
-			InPackageParams,
-			OldOutputObjects,
-			NewOutputObjects,
-			AssignementMaterials,
-			ReplacementMaterials,
-			InAllOutputMaterials,
-			InOuterComponent,
-			InForceRebuild,
-			InStaticMeshMethod,
-			bSplitMeshSupport,
-			InSMGenerationProperties,
-			InMeshBuildSettings,
-			bInTreatExistingMaterialsAsUpToDate);
-	}
-
-	return FHoudiniMeshTranslator::CreateOrUpdateAllComponents(
-		InOutput,
-		InOuterComponent,
-		NewOutputObjects,
-		bInDestroyProxies);
-}
-
-bool
-FHoudiniMeshTranslator::CreateOrUpdateAllComponents(
-	UHoudiniOutput* InOutput,
-	UObject* InOuterComponent,
-	TMap<FHoudiniOutputObjectIdentifier, FHoudiniOutputObject>& InNewOutputObjects,
-	bool bInDestroyProxies,
-	bool bInApplyGenericProperties)
-{
-	if (!IsValid(InOutput))
-		return false;
-
-	TMap<FHoudiniOutputObjectIdentifier, FHoudiniOutputObject> OldOutputObjects = InOutput->GetOutputObjects();
-
-	// Remove Static Meshes and their components from the old map 
-	// to avoid their deletion if new proxies were created for them
-	for (auto& NewOutputObj : InNewOutputObjects)
-	{
-		FHoudiniOutputObjectIdentifier OutputIdentifier = NewOutputObj.Key;
-
-		// See if we already had that pair in the old map of static mesh
-		FHoudiniOutputObject* FoundOldOutputObj = OldOutputObjects.Find(NewOutputObj.Key);
-		if (!FoundOldOutputObj)
-			continue;
-		
-		UObject* NewStaticMesh = NewOutputObj.Value.OutputObject;
-		UObject* NewProxyMesh = NewOutputObj.Value.ProxyObject;
-
-		UObject* OldStaticMesh = FoundOldOutputObj->OutputObject;
-		if (IsValid(OldStaticMesh))
-		{
-			// If a proxy was created for an existing static mesh, keep the existing static
-			// mesh (will be hidden)
-			if (NewProxyMesh && NewOutputObj.Value.bProxyIsCurrent)
-			{
-				// Remove it from the old map to avoid its destruction
-				OldOutputObjects.Remove(OutputIdentifier);
-			}
-			else if (NewStaticMesh && NewStaticMesh == OldStaticMesh)
-			{
-				// Remove it from the old map to avoid its destruction
-				OldOutputObjects.Remove(OutputIdentifier);
-			}
-		}
-		
-		UObject* OldProxyMesh = FoundOldOutputObj->ProxyObject;
-		if (IsValid(OldProxyMesh))
-		{
-			// If a new static mesh was created for a proxy, keep the proxy (will be hidden)
-			// ... unless we want to explicitly destroy proxies
-			if (NewStaticMesh && !bInDestroyProxies)
-			{
-				// Remove it from the old map to avoid its destruction
-				OldOutputObjects.Remove(OutputIdentifier);
-			}
-			else if (NewProxyMesh && (NewProxyMesh == OldProxyMesh))
-			{
-				// Remove it from the old map to avoid its destruction
-				OldOutputObjects.Remove(OutputIdentifier);
-			}
-		}
-	}	
-
-	// The old map now only contains unused/stale Meshes/Components, delete them
-	for (auto& OldPair : OldOutputObjects)
-	{
-		// Get the old Identifier / StaticMesh
-		FHoudiniOutputObjectIdentifier& OutputIdentifier = OldPair.Key;
-		FHoudiniOutputObject& OldOutputObject = OldPair.Value;
-
-		// Remove the old component from the map
-		for(auto Component : OldOutputObject.OutputComponents)
-		    RemoveAndDestroyComponent(Component);
-		OldOutputObject.OutputComponents.Empty();
-
-		// Remove the old proxy component from the map
-		RemoveAndDestroyComponent(OldOutputObject.ProxyComponent);
-		OldOutputObject.ProxyComponent = nullptr;
-
-		if (IsValid(OldOutputObject.OutputObject))
-		{
-			OldOutputObject.OutputObject->MarkAsGarbage();
-		}
-
-		if (IsValid(OldOutputObject.ProxyObject))
-		{
-			OldOutputObject.ProxyObject->MarkAsGarbage();
-		}		
-	}
-	OldOutputObjects.Empty();
-
-	/*
-	// Remove any stale components, these are components with OutputIdentifiers that are not 
-	// in NewOutputObjects. This seems to happen mostly with the first or second cook after a
-	// "Rebuild Asset"
-	if (OutputComponents.Num() > 0 || OutputProxyComponents.Num() > 0)
-	{
-		TArray<TPair<FHoudiniOutputObjectIdentifier, UObject*>> StaleComponents;
-		const uint32 MaxNumStale = FMath::Max(OutputComponents.Num(), OutputProxyComponents.Num());
-		StaleComponents.Reserve(MaxNumStale);
-		for (auto& ComponentPair : OutputComponents)
-		{
-			if (!NewOutputObjects.Contains(ComponentPair.Key) && !OldOutputObjectsReplacedByProxy.Contains(ComponentPair.Key))
-			{
-				StaleComponents.Add(ComponentPair);
-			}
-		}
-		for (auto& ComponentPair : StaleComponents)
-		{
-			RemoveAndDestroyComponent(ComponentPair.Key, OutputComponents);
-		}
-		StaleComponents.Empty(MaxNumStale);
-
-		for (auto& ComponentPair : OutputProxyComponents)
-		{
-			if (!NewOutputProxyObjects.Contains(ComponentPair.Key) && !OldOutputProxyObjectsReplacedByStaticMesh.Contains(ComponentPair.Key))
-			{
-				StaleComponents.Add(ComponentPair);
-			}
-		}
-		for (auto& ComponentPair : StaleComponents)
-		{
-			RemoveAndDestroyComponent(ComponentPair.Key, OutputProxyComponents);
-		}
-		StaleComponents.Empty();
-	}
-	*/
-
-	// Exit early if we have no component to update
-	if (!IsValid(InOuterComponent))
-	{
-		// Assign the new output objects to the output
-		InOutput->SetOutputObjects(InNewOutputObjects);
-
-		return true;
-	}
-
-	// Now create/update the new static mesh components
-	for (auto& NewPair : InNewOutputObjects)
-	{
-		// Get the old Identifier / StaticMesh
-		const FHoudiniOutputObjectIdentifier& OutputIdentifier = NewPair.Key;
-		FHoudiniOutputObject& OutputObject = NewPair.Value;
-
-		if (OutputObject.bIsImplicit)
-		{
-			// This output is implicit and shouldn't have a representative component/proxy in the scene
-			// Remove the old component from the map
-			for(auto Component : OutputObject.OutputComponents)
-			{
-				RemoveAndDestroyComponent(Component);
-			}
-			OutputObject.OutputComponents.Empty();
-
-			// Remove the old proxy component from the map
-			RemoveAndDestroyComponent(OutputObject.ProxyComponent);
-			OutputObject.ProxyComponent = nullptr;
-
-			continue; // Skip any proxy / component creation below
-		}
-
-		// Check if we should create a Proxy/SMC
-		if (OutputObject.bProxyIsCurrent)
-		{
-			UObject *Mesh = OutputObject.ProxyObject;
-			if (!IsValid(Mesh) || !Mesh->IsA<UHoudiniStaticMesh>())
-			{
-				HOUDINI_LOG_ERROR(TEXT("Proxy Mesh is invalid (wrong type or pending kill)..."));
-				continue;
-			}
-
-			// Create or update a new proxy component
-			TSubclassOf<UMeshComponent> ComponentType = UHoudiniStaticMeshComponent::StaticClass();
-			const FHoudiniGeoPartObject *FoundHGPO = nullptr;
-			bool bCreated = false;
-			UMeshComponent *MeshComponent = CreateOrUpdateMeshComponent(
-				InOutput, 
-				InOuterComponent, 
-				OutputIdentifier, 
-				ComponentType, 
-				OutputObject, 
-				FoundHGPO,
-				bCreated);
-			if (MeshComponent)
-			{
-				UHoudiniStaticMeshComponent *HSMC = Cast<UHoudiniStaticMeshComponent>(MeshComponent);
-				UpdateMeshComponent(
-					MeshComponent,
-					Mesh,
-					OutputIdentifier,
-					OutputObject,
-					FoundHGPO, 
-					InOutput->HoudiniCreatedSocketActors, 
-					InOutput->HoudiniAttachedSocketActors,
-					bInApplyGenericProperties);
-
-				if (!bCreated)
-				{
-					// For proxy meshes: notify that the mesh has been updated
-					HSMC->NotifyMeshUpdated();
-					HSMC->SetHoudiniIconVisible(true);
-				}
-			}
-
-			// Now, ensure that meshes replaced by proxies are still kept but hidden
-			for(auto Component : OutputObject.OutputComponents)
-			{
-			    USceneComponent* SceneComponent = Cast<USceneComponent>(Component);
-			    if (SceneComponent)
-			    {
-				    SceneComponent->SetVisibility(false);
-				    SceneComponent->SetHiddenInGame(true);
-			    }
-			}
-
-			// If the proxy mesh we just created is templated, hide it in game
-			bool bIsTemplated = FoundHGPO ? FoundHGPO->bIsTemplated : false;
-			if (bIsTemplated)
-			{
-				MeshComponent->SetHiddenInGame(true);
-			}
-		}
-		else
-		{
-			// Create a new SMC if needed
-			UObject* Mesh = OutputObject.OutputObject;
-			if (!IsValid(Mesh))
-			{
-				HOUDINI_LOG_ERROR(TEXT("Mesh is invalid (wrong type or pending kill)..."));
-				continue;
-			}
-
-			const FHoudiniGeoPartObject* FoundHGPO = nullptr;
-			UMeshComponent* MeshComponent = nullptr;
-			if (Mesh->IsA<UStaticMesh>())
-			{
-				TSubclassOf<UMeshComponent> ComponentType = UStaticMeshComponent::StaticClass();
-				bool bCreated = false;
-				MeshComponent = CreateOrUpdateMeshComponent(InOutput, InOuterComponent, OutputIdentifier, ComponentType, OutputObject, FoundHGPO, bCreated);
-				if (MeshComponent)
-				{
-					UActorComponent* ProxyComponent = Cast<UActorComponent>(OutputObject.ProxyComponent);
-					if (IsValid(ProxyComponent))
-					{
-						// If this static mesh component has a proxy component, it was likely refined from the proxy component.
-						// This means that if the user enabled KeepTags, tags would have accumulated on the Proxy component so
-						// we need to copy the proxy mesh component tags over to the static mesh.
-						MeshComponent->ComponentTags = ProxyComponent->ComponentTags;
-					}
-					
-					UpdateMeshComponent(
-						MeshComponent,
-						Mesh,
-						OutputIdentifier,
-						OutputObject,
-						FoundHGPO,
-						InOutput->HoudiniCreatedSocketActors,
-						InOutput->HoudiniAttachedSocketActors,
-						bInApplyGenericProperties);
-
-					// UE5: Make sure we update/recreate the Component's render state
-					// after the update or the mesh component will not be rendered!
-					if (MeshComponent->IsRenderStateCreated())
-					{
-						// Need to send this to render thread at some point
-						MeshComponent->MarkRenderStateDirty();
-					}
-					else if (MeshComponent->ShouldCreateRenderState())
-					{
-						// If we didn't have a valid StaticMesh assigned before
-						// our render state might not have been created so
-						// do it now.
-						MeshComponent->RecreateRenderState_Concurrent();
-					}
-				}
-			}
-			else if (Mesh->IsA<USkeletalMesh>())
-			{
-				
-				TSubclassOf<UMeshComponent> SKComponentType = USkeletalMeshComponent::StaticClass();
-				bool bSKCreated = false;
-				MeshComponent = CreateOrUpdateMeshComponent(InOutput, InOuterComponent, OutputIdentifier, SKComponentType, OutputObject, FoundHGPO, bSKCreated);
-				if (MeshComponent)
-				{
-					UpdateMeshComponent(
-						MeshComponent,
-						Mesh,
-						OutputIdentifier,
-						OutputObject,
-						FoundHGPO,
-						InOutput->HoudiniCreatedSocketActors,
-						InOutput->HoudiniAttachedSocketActors,
-						bInApplyGenericProperties);
-
-					USkeletalMeshComponent* SKMC = Cast<USkeletalMeshComponent>(MeshComponent);
-					if (IsValid(SKMC))
-					{
-						USkeletalMesh* SKMesh = Cast<USkeletalMesh>(Mesh);
-						if (IsValid(SKMesh))
-						{
-							SKMC->SetSkeletalMesh(SKMesh);
-						}
-
-						// TODO: we're currently unable to retrieve point position on the SK mesh/pose? 
-						/*
-						// Skeletal Mesh need to get their transform set separtely from the shape instancer's point transform
-						//if (FoundHGPO != nullptr)
-						for (auto& CurHGPO : InOutput->HoudiniGeoPartObjects)
-						{
-							// Retrieve Position
-							HAPI_AttributeInfo PointInfo;
-							FHoudiniApi::AttributeInfo_Init(&PointInfo);
-
-							HAPI_Result PointInfoResult = FHoudiniApi::GetAttributeInfo(
-								FHoudiniEngine::Get().GetSession(),
-								CurHGPO.GeoId, CurHGPO.PartId,
-								HAPI_UNREAL_ATTRIB_POSITION, HAPI_AttributeOwner::HAPI_ATTROWNER_POINT, &PointInfo);
-
-							TArray<FVector3f> PositionData;
-							PositionData.SetNum(PointInfo.count);  //dont need * PositionInfo.tupleSize, its already a vector container
-							FHoudiniApi::GetAttributeFloatData(
-								FHoudiniEngine::Get().GetSession(),
-								CurHGPO.GeoId, CurHGPO.PartId, HAPI_UNREAL_ATTRIB_POSITION, &PointInfo, -1, (float*)&PositionData[0], 0, PointInfo.count);
-
-							if (PositionData.Num() > 0)
-							{
-								SKMC->SetRelativeLocation(FVector3d(FHoudiniEngineUtils::ConvertHoudiniPositionToUnrealVector3f(PositionData[0])));
-							}
-
-						}
-						else
-						{
-							TArray<FTransform> Transforms;
-							for (auto& CurHGPO : InOutput->HoudiniGeoPartObjects)
-							{
-								if (FHoudiniInstanceTranslator::HapiGetInstanceTransforms(CurHGPO, Transforms))
-								{
-									SKMC->SetRelativeTransform(Transforms[0]);
-								}
-							}
-						}
-						*/
-					}
-				}
-			}
-
-			// Now, ensure that proxies replaced by meshes are still kept but hidden
-			UHoudiniStaticMeshComponent* HSMC = Cast<UHoudiniStaticMeshComponent>(OutputObject.ProxyComponent);
-			if (HSMC)
-			{
-				HSMC->SetVisibility(false);
-				HSMC->SetHiddenInGame(true);
-				HSMC->SetHoudiniIconVisible(false);
-			}
-
-			// If the mesh we just created is templated, hide it in game
-			bool bIsTemplated = FoundHGPO ? FoundHGPO->bIsTemplated : false;
-			if (IsValid(MeshComponent) && bIsTemplated)
-			{
-				MeshComponent->SetHiddenInGame(true);
-			}
-		}
-	}
-
-	// Assign the new output objects to the output
-	InOutput->SetOutputObjects(InNewOutputObjects);
-
-	return true;
-}
-
-void
-FHoudiniMeshTranslator::UpdateMeshComponent(
-	UMeshComponent *InMeshComponent, 
-	UObject* InMesh, 
-	const FHoudiniOutputObjectIdentifier &InOutputIdentifier,
-	const FHoudiniOutputObject& OutputObject,
-	const FHoudiniGeoPartObject *InHGPO, 
-	TArray<AActor*> &HoudiniCreatedSocketActors, 
-	TArray<AActor*> &HoudiniAttachedSocketActors,
-	bool bInApplyGenericProperties)
-{
-	UStaticMeshComponent* const SMC = Cast<UStaticMeshComponent>(InMeshComponent);
-	UHoudiniStaticMeshComponent* const HSMC = Cast<UHoudiniStaticMeshComponent>(InMeshComponent);
-	if (IsValid(SMC))
-	{
-		UpdateMeshOnStaticMeshComponent(SMC, InMesh);
-	}
-	else if (IsValid(HSMC))
-	{
-		UpdateMeshOnHoudiniStaticMeshComponent(HSMC, InMesh);
-	}
-	
-	// Update collision/visibility
-	EHoudiniSplitType SplitType = GetSplitTypeFromSplitName(InOutputIdentifier.SplitIdentifier);
-	if (SplitType == EHoudiniSplitType::InvisibleComplexCollider || OutputObject.bIsInvisibleCollisionMesh)
-	{
-		// Invisible complex collider should not be seen
-		InMeshComponent->SetVisibility(false);
-		InMeshComponent->SetHiddenInGame(true);
-		InMeshComponent->SetCollisionProfileName(FName(TEXT("InvisibleWall")));
-		InMeshComponent->SetCastShadow(false);
-	}
-	else
-	{
-		// Update visiblity
-		bool bVisible = InHGPO ? InHGPO->bIsVisible : true;
-		InMeshComponent->SetVisibility(bVisible);
-		InMeshComponent->SetHiddenInGame(!bVisible);
-		
-		FPropertyChangedEvent Evt(FindFieldChecked<FProperty>(InMeshComponent->GetClass(), "bVisible"));
-		InMeshComponent->PostEditChangeProperty(Evt);
-	}
-
-	// TODO:
-	// Update navmesh?
-
-	// Transform the component by transformation provided by HAPI.
-	InMeshComponent->SetRelativeTransform(InHGPO ? InHGPO->TransformMatrix : FTransform::Identity);
-
-	// If the static mesh had sockets, we can assign the desired actor to them now
-	UStaticMeshComponent * StaticMeshComponent = Cast<UStaticMeshComponent>(InMeshComponent);
-	UStaticMesh * StaticMesh = nullptr;
-	if (IsValid(StaticMeshComponent))
-		StaticMesh = StaticMeshComponent->GetStaticMesh();
-
-	if (IsValid(StaticMesh)) 
-	{
-		int32 NumberOfSockets = StaticMesh == nullptr ? 0 : StaticMesh->Sockets.Num();
-		for (int32 nSocket = 0; nSocket < NumberOfSockets; nSocket++)
-		{
-			UStaticMeshSocket* MeshSocket = StaticMesh->Sockets[nSocket];
-			if (IsValid(MeshSocket) && (MeshSocket->Tag.IsEmpty()))
-				continue;
-
-			AddActorsToMeshSocket(StaticMesh->Sockets[nSocket], StaticMeshComponent, HoudiniCreatedSocketActors, HoudiniAttachedSocketActors);
-		}
-
-		// Iterate all remaining created socket actors, destroy the ones that are not assigned to socket after re-cook
-		{
-			for (int32 Idx = HoudiniCreatedSocketActors.Num() - 1; Idx >= 0; --Idx) 
-			{
-				AActor * CurActor = HoudiniCreatedSocketActors[Idx];
-
-				if (!IsValid(CurActor))
-				{
-					HoudiniCreatedSocketActors.RemoveAt(Idx);
-					continue;
-				}
-
-				bool bFoundSocket = false;
-				for (auto & CurSocket : StaticMesh->Sockets)
-				{
-					if (CurSocket->SocketName == CurActor->GetAttachParentSocketName())
-					{
-						bFoundSocket = true;
-						break;
-					}
-				}
-				// cur actor's attaching socket is found, skip
-				if (bFoundSocket)
-					continue;
-
-				// Destroy the previous created socket actor if not found
-				HoudiniCreatedSocketActors.RemoveAt(Idx);
-				CurActor->Destroy();
-			}
-		}
-
-		// Detach the in level actors which is not attached to any socket now
-		{
-			for (int32 Idx = HoudiniAttachedSocketActors.Num() - 1; Idx >= 0; --Idx) 
-			{
-				AActor* CurActor = HoudiniAttachedSocketActors[Idx];
-				if (!IsValid(CurActor)) 
-				{
-					HoudiniAttachedSocketActors.RemoveAt(Idx);
-					continue;
-				}
-
-				bool bFoundSocket = false;
-				for (auto & CurSocket : StaticMesh->Sockets)
-				{
-					if (CurSocket->SocketName == CurActor->GetAttachParentSocketName())
-					{
-						bFoundSocket = true;
-						break;
-					}
-				}
-
-				if (bFoundSocket)
-					continue;
-
-				// If the attached socket name is not found in current socket, detach it and remove from the array
-				CurActor->DetachFromActor(FDetachmentTransformRules::KeepRelativeTransform);
-				HoudiniAttachedSocketActors.RemoveAt(Idx);			
-			}
-		}
-
-	}
-
-	if (bInApplyGenericProperties)
-	{
-		// Clear the component tags, if permitted by HGPOs
-		FHoudiniEngineUtils::KeepOrClearComponentTags(InMeshComponent, InHGPO);
-		
-		// Update the property attributes on the component
-		TArray<FHoudiniGenericAttribute> PropertyAttributes;
-		if (FHoudiniEngineUtils::GetGenericPropertiesAttributes(
-			InOutputIdentifier.GeoId, InOutputIdentifier.PartId,
-			true,
-			InOutputIdentifier.PrimitiveIndex,
-			INDEX_NONE,
-			InOutputIdentifier.PointIndex,
-			PropertyAttributes))
-		{
-			FHoudiniEngineUtils::UpdateGenericPropertiesAttributes(InMeshComponent, PropertyAttributes);
-		}
-	}
-}
-
-bool
-FHoudiniMeshTranslator::CreateStaticMeshFromHoudiniGeoPartObject(
-	const FHoudiniGeoPartObject& InHGPO,
-	const FHoudiniPackageParams& InPackageParams,
-	const TMap<FHoudiniOutputObjectIdentifier, FHoudiniOutputObject>& InOutputObjects,
-	TMap<FHoudiniOutputObjectIdentifier, FHoudiniOutputObject>& OutOutputObjects,
-	TMap<FHoudiniMaterialIdentifier, UMaterialInterface*>& AssignmentMaterialMap,
-	TMap<FHoudiniMaterialIdentifier, UMaterialInterface*>& ReplacementMaterialMap,
-	const TMap<FHoudiniMaterialIdentifier, UMaterialInterface*>& InAllOutputMaterials,
-	UObject* const InOuterComponent,
-	const bool& InForceRebuild,
-	EHoudiniStaticMeshMethod InStaticMeshMethod,
-	bool bSplitMeshSupport,
-	const FHoudiniStaticMeshGenerationProperties& InSMGenerationProperties,
-	const FMeshBuildSettings& InSMBuildSettings,
-	bool bInTreatExistingMaterialsAsUpToDate)
-{
-	// If we're not forcing the rebuild
-	// No need to recreate something that hasn't changed
-	if (!InForceRebuild && !InHGPO.bHasGeoChanged && !InHGPO.bHasPartChanged && InOutputObjects.Num() > 0)
-	{
-		// Simply reuse the existing meshes
-		OutOutputObjects = InOutputObjects;
-		return true;
-	}
-
-	// NOTE: We can't handle skeletal meshes here. Skeletal meshes now consist of multiple HGPOs and we have to
-	// aggregate the HGPO that belong to the same Skeletal Mesh and process them as a single unit.
-	// // Handle Skeletal Meshes here
-	// if (FHoudiniSkeletalMeshTranslator::HasSkeletalMeshData(InHGPO.GeoId, InHGPO.PartId))
-	// {
-	// 	FHoudiniSkeletalMeshTranslator SKMeshTranslator;
-	// 	SKMeshTranslator.SetHoudiniSkeletalMeshParts(InHGPO);
-	// 	SKMeshTranslator.SetInputObjects(InOutputObjects);
-	// 	SKMeshTranslator.SetOutputObjects(OutOutputObjects);
-	// 	SKMeshTranslator.SetPackageParams(InPackageParams, true);
-	//
-	// 	if (SKMeshTranslator.CreateSkeletalMesh_SkeletalMeshImportData())
-	// 	{
-	// 		// Copy the output objects/materials
-	// 		OutOutputObjects = SKMeshTranslator.OutputObjects;
-	// 		//AssignmentMaterialMap = SKMT.OutputAssignmentMaterials;
-	//
-	// 		return true;
-	// 	}
-	// 	else
-	// 	{
-	// 		return false;
-	// 	}
-	// }
-
-	// Create a new mesh translator to handle the output data creation
-	FHoudiniMeshTranslator CurrentTranslator;
-	CurrentTranslator.ForceRebuild = InForceRebuild;
-	CurrentTranslator.SetHoudiniGeoPartObject(InHGPO);
-	CurrentTranslator.SetInputObjects(InOutputObjects);
-	CurrentTranslator.SetOutputObjects(OutOutputObjects);
-	CurrentTranslator.SetInputAssignmentMaterials(AssignmentMaterialMap);
-	CurrentTranslator.SetAllOutputMaterials(InAllOutputMaterials);
-	CurrentTranslator.SetReplacementMaterials(ReplacementMaterialMap);
-	CurrentTranslator.SetPackageParams(InPackageParams, true);
-	CurrentTranslator.SetTreatExistingMaterialsAsUpToDate(bInTreatExistingMaterialsAsUpToDate);
-	CurrentTranslator.SetStaticMeshGenerationProperties(InSMGenerationProperties);
-	CurrentTranslator.SetStaticMeshBuildSettings(InSMBuildSettings);
-	CurrentTranslator.SetOuterComponent(InOuterComponent);
-
-	// TODO: Fetch from settings/HAC
-	CurrentTranslator.DefaultMeshSmoothing = 1;
-	if (false)
-		CurrentTranslator.DefaultMeshSmoothing = 0;
-
-	// Create the Static Mesh with the desired method
-	switch (InStaticMeshMethod)
-	{
-		case EHoudiniStaticMeshMethod::RawMesh_DEPRECATED:
-			CurrentTranslator.CreateStaticMesh_RawMesh();
-			break;
-
-		case EHoudiniStaticMeshMethod::FMeshDescription:
-			if (bSplitMeshSupport)
-				CurrentTranslator.CreateStaticMeshesFromSplitGroups();
-			else
-				CurrentTranslator.CreateStaticMesh_MeshDescription();
-			break;
-
-		case EHoudiniStaticMeshMethod::UHoudiniStaticMesh:
-			if (bSplitMeshSupport)
-				CurrentTranslator.CreateHoudiniStaticMeshesFromSplitGroups();
-			else
-				CurrentTranslator.CreateHoudiniStaticMesh();
-
-			break;
-	}
-
-	// Copy the output objects/materials
-	OutOutputObjects = CurrentTranslator.OutputObjects;
-	AssignmentMaterialMap = CurrentTranslator.OutputAssignmentMaterials;
-
-	return true;
-}
-
-bool
-FHoudiniMeshTranslator::UpdatePartVertexList()
-{
-	TRACE_CPUPROFILER_EVENT_SCOPE(TEXT("FHoudiniMeshTranslator::UpdatePartVertexList"));
-
-	if (HGPO.PartInfo.VertexCount <= 0)
-		return false;
-
-	// Get the vertex List
-	PartVertexList.SetNumUninitialized(HGPO.PartInfo.VertexCount);
-
-	if (HAPI_RESULT_SUCCESS != FHoudiniApi::GetVertexList(
-		FHoudiniEngine::Get().GetSession(),
-		HGPO.GeoId, HGPO.PartId, &PartVertexList[0], 0, HGPO.PartInfo.VertexCount))
-	{
-		// Error getting the vertex list.
-		HOUDINI_LOG_MESSAGE(
-			TEXT("Creating Static Meshes: Object [%d %s], Geo [%d], Part [%d %s] unable to retrieve vertex list - skipping."),
-			HGPO.ObjectId, *HGPO.ObjectName, HGPO.GeoId, HGPO.PartId, *HGPO.PartName);
-
-		return false;
-	}
-
-	return true;
-}
-
-void
-FHoudiniMeshTranslator::SortSplitGroups()
-{
-	TRACE_CPUPROFILER_EVENT_SCOPE(TEXT("FHoudiniMeshTranslator::SortSplitGroups"));
 
 	// Sort the splits in the order that we want to process them:
 	// Simple/Convex invisible colliders should be treated first as they will need to be attached to the visible meshes
@@ -1203,19 +476,69 @@ FHoudiniMeshTranslator::UpdatePartColorsIfNeeded()
 	// Only Retrieve the vertices colors if necessary
 	if (PartColors.Num() > 0)
 		return true;
-
-	bool Success = FHoudiniEngineUtils::HapiGetAttributeDataAsFloat(
-		HGPO.GeoInfo.NodeId, HGPO.PartInfo.PartId,
-		HAPI_UNREAL_ATTRIB_COLOR, AttribInfoColors, PartColors);
-
-	if (!Success && AttribInfoColors.exists)
-	{
-		// Error retrieving colors.
-		HOUDINI_LOG_WARNING(
-			TEXT("Creating Static Meshes: Object [%d %s], Geo [%d], Part [%d %s], unable to retrieve color data"),
-			HGPO.ObjectId, *HGPO.ObjectName, HGPO.GeoId, HGPO.PartId, *HGPO.PartName);
-		return false;
 	}
+
+	// Handle Skeletal Meshes here
+	if (FHoudiniSkeletalMeshTranslator::HasSkeletalMeshData(InHGPO.GeoId, InHGPO.PartId))
+	{
+		FHoudiniSkeletalMeshTranslator SKMeshTranslator;
+		SKMeshTranslator.SetHoudiniGeoPartObject(InHGPO);
+		SKMeshTranslator.SetOutputObjects(OutOutputObjects);
+		SKMeshTranslator.SetPackageParams(InPackageParams, true);
+
+		if (SKMeshTranslator.CreateSkeletalMesh_SkeletalMeshImportData())
+		{
+			// Copy the output objects/materials
+			OutOutputObjects = SKMeshTranslator.OutputObjects;
+			//AssignmentMaterialMap = SKMT.OutputAssignmentMaterials;
+
+			return true;
+		}
+		else
+		{
+			return false;
+		}
+	}
+
+	// Create a new mesh translator to handle the output data creation
+	FHoudiniMeshTranslator CurrentTranslator;
+	CurrentTranslator.ForceRebuild = InForceRebuild;
+	CurrentTranslator.SetHoudiniGeoPartObject(InHGPO);
+	CurrentTranslator.SetInputObjects(InOutputObjects);
+	CurrentTranslator.SetOutputObjects(OutOutputObjects);
+	CurrentTranslator.SetInputAssignmentMaterials(AssignmentMaterialMap);
+	CurrentTranslator.SetAllOutputMaterials(InAllOutputMaterials);
+	CurrentTranslator.SetReplacementMaterials(ReplacementMaterialMap);
+	CurrentTranslator.SetPackageParams(InPackageParams, true);
+	CurrentTranslator.SetTreatExistingMaterialsAsUpToDate(bInTreatExistingMaterialsAsUpToDate);
+	CurrentTranslator.SetStaticMeshGenerationProperties(InSMGenerationProperties);
+	CurrentTranslator.SetStaticMeshBuildSettings(InSMBuildSettings);
+	CurrentTranslator.SetOuterComponent(InOuterComponent);
+
+	// TODO: Fetch from settings/HAC
+	CurrentTranslator.DefaultMeshSmoothing = 1;
+	if (false)
+		CurrentTranslator.DefaultMeshSmoothing = 0;
+
+	// Create the Static Mesh with the desired method
+	switch (InStaticMeshMethod)
+	{
+		case EHoudiniStaticMeshMethod::RawMesh:
+			CurrentTranslator.CreateStaticMesh_RawMesh();
+			break;
+
+		case EHoudiniStaticMeshMethod::FMeshDescription:
+			CurrentTranslator.CreateStaticMesh_MeshDescription();
+			break;
+
+		case EHoudiniStaticMeshMethod::UHoudiniStaticMesh:
+			CurrentTranslator.CreateHoudiniStaticMesh();
+			break;
+	}
+
+	// Copy the output objects/materials
+	OutOutputObjects = CurrentTranslator.OutputObjects;
+	AssignmentMaterialMap = CurrentTranslator.OutputAssignmentMaterials;
 
 	return true;
 }
@@ -1977,28 +1300,6 @@ FHoudiniMeshTranslator::CreateStaticMesh_RawMesh()
 
 	// bool MeshMaterialsHaveBeenReset = false;
 
-	double tick = FPlatformTime::Seconds();
-	if (bDoTiming)
-	{
-		HOUDINI_LOG_MESSAGE(TEXT("CreateStaticMesh_RawMesh() - Pre Split-Loop in %f seconds."), tick - time_start);
-	}
-
-	UStaticMesh* MainStaticMesh = nullptr;
-	bool bAssignedCustomCollisionMesh = false;
-	ECollisionTraceFlag MainStaticMeshCTF = StaticMeshGenerationProperties.GeneratedCollisionTraceFlag;
-
-	// Map of object identifiers to package params
-	TMap<FHoudiniOutputObjectIdentifier, FHoudiniPackageParams> ObjectIdentifiersToPackageParams;
-
-	// Iterate through all detected split groups we care about and split geometry.
-	// The split are ordered in the following way:
-	// Invisible Simple/Convex Colliders > LODs > MainGeo > Visible Colliders > Invisible Colliders
-	for (int32 SplitId = 0; SplitId < AllSplitGroups.Num(); SplitId++)
-	{
-		double split_tick = FPlatformTime::Seconds();
-
-		// Get split group name
-		const FString& SplitGroupName = AllSplitGroups[SplitId];
 
 		// Get the vertex indices for this group
 		TArray<int32>& SplitVertexList = AllSplitVertexLists[SplitGroupName];
@@ -2318,64 +1619,26 @@ FHoudiniMeshTranslator::CreateStaticMesh_RawMesh()
 				FHoudiniMeshTranslator::TransferRegularPointAttributesToVertices(
 					SplitVertexList, AttribInfoTangentU, PartTangentU, SplitTangentU);
 
-				// Get the binormals for this split
-				TArray< float > SplitTangentV;
-				FHoudiniMeshTranslator::TransferRegularPointAttributesToVertices(
-					SplitVertexList, AttribInfoTangentV, PartTangentV, SplitTangentV);
 
-				// We need to manually generate tangents if:
-				// - we have normals but dont have tangentu or tangentv attributes
-				// - we have not specified that we wanted unreal to generate them
-				bool bGenerateTangents = (SplitNormals.Num() > 0) && (SplitTangentU.Num() <= 0 || SplitTangentV.Num() <= 0);
+FHoudiniOutputObjectIdentifier
+FHoudiniMeshTranslator::MakeOutputObjectIdentifier(const FString& InSplitGroupName, const EHoudiniSplitType InSplitType)
+{
+	FHoudiniOutputObjectIdentifier OutputObjectIdentifier(
+		HGPO.ObjectId, HGPO.GeoId, HGPO.PartId, GetMeshIdentifierFromSplit(InSplitGroupName, InSplitType));
+	OutputObjectIdentifier.PartName = HGPO.PartName;
+	OutputObjectIdentifier.PrimitiveIndex = AllSplitFirstValidPrimIndex[InSplitGroupName];
+	const int32 FirstValidVertexIndex = AllSplitFirstValidVertexIndex[InSplitGroupName];
+	if (FirstValidVertexIndex >= 0 && AllSplitVertexLists[InSplitGroupName].IsValidIndex(FirstValidVertexIndex))
+	{
+		OutputObjectIdentifier.PointIndex = AllSplitVertexLists[InSplitGroupName][FirstValidVertexIndex];
+	}
+	else
+	{
+		OutputObjectIdentifier.PointIndex = -1;
+	}
 
-				// Check that the number of tangents read matches the number of normals
-				int32 WedgeTangentUCount = SplitTangentU.Num() / 3;
-				int32 WedgeTangentVCount = SplitTangentV.Num() / 3;
-				if (WedgeTangentUCount != WedgeNormalCount || WedgeTangentVCount != WedgeNormalCount)
-					bGenerateTangents = true;
-
-				if (bGenerateTangents && (HoudiniRuntimeSettings->RecomputeTangentsFlag == EHoudiniRuntimeSettingsRecomputeFlag::HRSRF_Always))
-				{
-					// No need to generate tangents if we want unreal to recompute them after
-					bGenerateTangents = false;
-				}
-
-				// Generate the tangents if needed
-				if (bGenerateTangents)
-				{
-					RawMesh.WedgeTangentX.SetNumZeroed(WedgeNormalCount);
-					RawMesh.WedgeTangentY.SetNumZeroed(WedgeNormalCount);
-					for (int32 WedgeTangentZIdx = 0; WedgeTangentZIdx < WedgeNormalCount; ++WedgeTangentZIdx)
-					{
-						FVector3f TangentX, TangentY;
-						RawMesh.WedgeTangentZ[WedgeTangentZIdx].FindBestAxisVectors(TangentX, TangentY);
-
-						RawMesh.WedgeTangentX[WedgeTangentZIdx] = TangentX;
-						RawMesh.WedgeTangentY[WedgeTangentZIdx] = TangentY;
-					}
-				}
-				else
-				{
-					// Transfer the tangents we have read them and they're valid
-					RawMesh.WedgeTangentX.SetNumZeroed(WedgeTangentUCount);
-					for (int32 WedgeTangentUIdx = 0; WedgeTangentUIdx < WedgeTangentUCount; ++WedgeTangentUIdx)
-					{
-						// We need to flip Z and Y
-						RawMesh.WedgeTangentX[WedgeTangentUIdx].X = SplitTangentU[WedgeTangentUIdx * 3 + 0];
-						RawMesh.WedgeTangentX[WedgeTangentUIdx].Y = SplitTangentU[WedgeTangentUIdx * 3 + 2];
-						RawMesh.WedgeTangentX[WedgeTangentUIdx].Z = SplitTangentU[WedgeTangentUIdx * 3 + 1];
-					}
-
-					RawMesh.WedgeTangentY.SetNumZeroed(WedgeTangentVCount);
-					for (int32 WedgeTangentVIdx = 0; WedgeTangentVIdx < WedgeTangentVCount; ++WedgeTangentVIdx)
-					{
-						// We need to flip Z and Y
-						RawMesh.WedgeTangentY[WedgeTangentVIdx].X = SplitTangentV[WedgeTangentVIdx * 3 + 0];
-						RawMesh.WedgeTangentY[WedgeTangentVIdx].Y = SplitTangentV[WedgeTangentVIdx * 3 + 2];
-						RawMesh.WedgeTangentY[WedgeTangentVIdx].Z = SplitTangentV[WedgeTangentVIdx * 3 + 1];
-					}
-				}
-			}
+	return OutputObjectIdentifier;
+}
 
 			if (bDoTiming)
 			{
@@ -9558,10 +8821,16 @@ void FHoudiniMeshTranslator::BuildHoudiniMesh(const FString& SplitGroupName, UHo
 	// Extract this part's normal if needed
 	UpdatePartNormalsIfNeeded();
 
-	// Get the normals for this split
-	TArray<float> SplitNormals;
-	FHoudiniMeshTranslator::TransferRegularPointAttributesToVertices(
-		SplitVertexList, AttribInfoNormals, PartNormals, SplitNormals);
+	// See if we already have a component for that mesh
+	UMeshComponent* MeshComponent = nullptr;
+	if (bIsProxyComponent) 
+	{
+		MeshComponent = Cast<UMeshComponent>(OutputObject.ProxyComponent);
+	} 
+	else if (OutputObject.OutputComponents.Num() > 0) 
+	{
+		MeshComponent = Cast<UMeshComponent>(OutputObject.OutputComponents[0]);
+	}
 
 	// Check that the number of normal we retrieved is correct
 	int32 NormalCount = SplitNormals.Num() / 3;

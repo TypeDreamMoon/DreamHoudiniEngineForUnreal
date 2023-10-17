@@ -488,6 +488,10 @@ FHoudiniOutputTranslator::UpdateOutputs(
 
 		case EHoudiniOutputType::Skeletal:
 		{
+			FHoudiniSkeletalMeshTranslator::CreateAllSkeletalMeshesAndComponentsFromHoudiniOutput(
+				CurOutput, PackageParams, AllOutputMaterials, OuterComponent);
+
+			NumVisibleOutputs++;
 			break;
 		}
 
