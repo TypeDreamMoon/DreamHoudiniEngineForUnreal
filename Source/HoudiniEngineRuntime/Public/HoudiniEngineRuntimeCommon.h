@@ -70,18 +70,18 @@ enum class EHoudiniInputType : uint8
 	Curve,
 
 	/* @deprecated This was removed in Houdini 20 */
-	Asset_DEPRECATED,
+	Asset,
 
 	/* @deprecated This was removed in Houdini 20 */
-	Landscape_DEPRECATED,
+	Landscape,
 
 	World,
 
 	/* @deprecated This was removed in Houdini 20 */
-	Skeletal_DEPRECATED,
+	Skeletal,
 
 	/* @deprecated This was removed in Houdini 20 */
-	GeometryCollection_DEPRECATED,
+	GeometryCollection,
 };
 
 UENUM()

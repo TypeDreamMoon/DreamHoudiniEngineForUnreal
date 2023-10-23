@@ -440,8 +440,6 @@ FHoudiniInputTranslator::DestroyInputNodes(UHoudiniInput* InputToDestroy, const 
 	if (!InputToDestroy->CanDeleteHoudiniNodes())
 		return false;
 
-	// When using the new input system, get all HAPI NodeIds managed by the system as a set. Do not delete any nodes
-	// here if their ids are in the set. The manager will handle deletion of those nodes when needed.
 	const bool bUseRefCountedInputSystem = FUnrealObjectInputRuntimeUtils::IsRefCountedInputSystemEnabled();
 	IUnrealObjectInputManager const* const Manager = bUseRefCountedInputSystem ? FUnrealObjectInputManager::Get() : nullptr;
 	TSet<int32> ManagedNodeIdSet;
