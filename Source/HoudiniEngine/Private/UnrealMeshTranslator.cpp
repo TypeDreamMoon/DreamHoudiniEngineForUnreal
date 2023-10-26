@@ -5158,7 +5158,18 @@ FUnrealMeshTranslator::CreateAndPopulateMeshPartFromMeshDescription(
 			NodeId, 0, HAPI_UNREAL_ATTRIB_LIGHTMAP_RESOLUTION, &AttributeInfoLightMapResolution), false);
 
 		HOUDINI_CHECK_ERROR_RETURN(FHoudiniEngineUtils::HapiSetAttributeIntUniqueData(
-			LightMapResolution.GetValue(), NodeId, 0, HAPI_UNREAL_ATTRIB_LIGHTMAP_RESOLUTION, AttributeInfoLightMapResolution), false);
+			LightMapResolution, NodeId, 0, HAPI_UNREAL_ATTRIB_LIGHTMAP_RESOLUTION, AttributeInfoLightMapResolution), false);
+	}
+
+	//---------------------------------------------------------------------------------------------------------------------
+	// DATA & HLOD LAYERS
+	//---------------------------------------------------------------------------------------------------------------------
+
+	if (IsValid(ParentActor))
+	{
+		FHoudiniDataLayerUtils::AddGroupsFromDataLayers(ParentActor, NodeId, 0);
+		FHoudiniHLODLayerUtils::AddHLODAttributes(ParentActor, NodeId, 0);
+
 	}
 
 	//--------------------------------------------------------------------------------------------------------------------- 
