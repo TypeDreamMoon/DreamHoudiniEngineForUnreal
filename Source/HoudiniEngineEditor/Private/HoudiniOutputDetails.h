@@ -68,10 +68,6 @@ public:
 		IDetailCategoryBuilder& HouOutputCategory,
 		const TWeakObjectPtr<UHoudiniOutput>& InOutput);
 
-	void CreateSkeletalOutputWidget(
-		IDetailCategoryBuilder& HouOutputCategory,
-		const TWeakObjectPtr<UHoudiniOutput>& InOutput);
-
 	void CreateAnimSequenceOutputWidget(IDetailCategoryBuilder& HouOutputCategory,
 		const TWeakObjectPtr<UHoudiniOutput>& InOutput);
 
