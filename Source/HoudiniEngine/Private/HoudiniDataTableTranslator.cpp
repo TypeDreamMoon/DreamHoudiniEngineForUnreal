@@ -639,6 +639,7 @@ FHoudiniDataTableTranslator::BuildDataTable(
 
 	FHoudiniOutputObjectIdentifier OutputID(HGPO.ObjectId, GeoId, PartId, HGPO.PartName);
 	FHoudiniOutputObject& FoundOutputObject = CurOutput->GetOutputObjects().FindOrAdd(OutputID);
+	TMap<FHoudiniOutputObjectIdentifier, FHoudiniOutputObject>& OutputObjects = CurOutput->GetOutputObjects();
 	FoundOutputObject.OutputComponents.Empty();
 	FoundOutputObject.OutputObject = DataTable;
 

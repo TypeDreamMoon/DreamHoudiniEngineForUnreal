@@ -1586,9 +1586,11 @@ FHoudiniMeshTranslator::CreateStaticMesh_RawMesh()
 					HOUDINI_LOG_WARNING(TEXT("Invalid normal count detected - Skipping normals."));
 			}
 
-			// Transfer the normals to the raw mesh 
-			RawMesh.WedgeTangentZ.SetNumZeroed(WedgeNormalCount);
-			for (int32 WedgeTangentZIdx = 0; WedgeTangentZIdx < WedgeNormalCount; ++WedgeTangentZIdx)
+	{
+		FString BakeFolder;
+		if (FHoudiniEngineUtils::GetBakeFolderAttribute(HGPO.GeoId, HGPO.PartId, BakeFolder, InPrimIndex))
+		{
+			if (!BakeFolder.IsEmpty())
 			{
 				// Swap Y/Z for Coordinates conversion
 				RawMesh.WedgeTangentZ[WedgeTangentZIdx].X = SplitNormals[WedgeTangentZIdx * 3 + 0];

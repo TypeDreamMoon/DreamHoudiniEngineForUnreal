@@ -34,11 +34,7 @@
 #include "WorldPartition/DataLayer/WorldDataLayers.h"
 #include "HoudiniPackageParams.h"
 #include "DataLayer/DataLayerEditorSubsystem.h"
-
-#if HOUDINI_ENABLE_DATA_LAYERS
 #include "WorldPartition/DataLayer/DataLayerAsset.h"
-#endif
-
 #if WITH_EDITOR
 //#include "DataLayer/DataLayerEditorSubsystem.h"
 #endif

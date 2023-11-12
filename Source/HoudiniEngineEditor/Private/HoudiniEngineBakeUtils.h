@@ -34,7 +34,6 @@
 #include "HoudiniOutputDetails.h"
 #include "HoudiniEngineOutputStats.h"
 
-struct FHoudiniEngineBakedActor;
 class UDataTable;
 class ULevelInstanceComponent;
 class UHoudiniAssetComponent;
@@ -593,11 +592,12 @@ public:
 		UHoudiniOutput* CookedOutput,
 		const FHoudiniOutputObjectIdentifier& Identifier,
 		const UHoudiniAssetComponent* HoudiniAssetComponent,
-		const FHoudiniBakedOutput& InPreviousBakedOutput,
-		FHoudiniBakedOutput& InNewBakedOutput,
+		FHoudiniBakedOutput& InBakedOutputs,
 		const FDirectoryPath& InBakeFolder,
-		const FHoudiniBakeSettings& BakeSettings,
-		FHoudiniBakedObjectData& BakedObjectData);
+		bool bInReplaceActors,
+		bool bInReplaceAssets,
+		TArray<UPackage*>& OutPackagesToSave,
+		FHoudiniEngineOutputStats& OutBakeStats);
 
 	static UDataTable* CreateBakedDataTable(
 		UScriptStruct * UserDefinedStruct,
@@ -605,26 +605,29 @@ public:
 		UHoudiniOutput* CookedOutput,
 		const FHoudiniOutputObjectIdentifier& Identifier,
 		const UHoudiniAssetComponent* HoudiniAssetComponent,
-		const FHoudiniBakedOutput& InPreviousBakedOutput,
-		FHoudiniBakedOutput& InNewBakedOutput,
+		FHoudiniBakedOutput& InBakedOutputs,
 		const FDirectoryPath& InBakeFolder,
-		const FHoudiniBakeSettings& BakeSettings,
-		FHoudiniBakedObjectData& BakedObjectData);
+		bool bInReplaceActors,
+		bool bInReplaceAssets,
+		TArray<UPackage*>& OutPackagesToSave,
+		FHoudiniEngineOutputStats& OutBakeStats);
 
 
 	static bool BakeDataTables(
 		const UHoudiniAssetComponent* HoudiniAssetComponent,
 		int32 InOutputIndex,
 		const TArray<UHoudiniOutput*>& InAllOutputs,
-		FHoudiniEngineBakeState& InBakeState,
+		TArray<FHoudiniBakedOutput>& InBakedOutputs,
 		const FDirectoryPath& InBakeFolder,
 		const FDirectoryPath& InTempCookFolder,
-		const FHoudiniBakeSettings& BakeSettings,
+		bool bInReplaceActors,
+		bool bInReplaceAssets,
 		const TArray<FHoudiniEngineBakedActor>& InBakedActors,
 		TArray<FHoudiniEngineBakedActor>& OutActors,
-		FHoudiniBakedObjectData& BakedObjectData,
+		TArray<UPackage*>& OutPackagesToSave,
 		TMap<UStaticMesh*, UStaticMesh*>& InOutAlreadyBakedStaticMeshMap,
 		TMap<UMaterialInterface*, UMaterialInterface*>& InOutAlreadyBakedMaterialsMap,
+		FHoudiniEngineOutputStats& OutBakeStats,
 		AActor* InFallbackActor = nullptr,
 		const FString& InFallbackWorldOutlinerFolder = TEXT(""));
 
@@ -1118,7 +1121,7 @@ public:
 	static void RemoveBakedLevelInstances(
 		UHoudiniAssetComponent* HoudiniAssetComponent, 
 		TArray<FHoudiniBakedOutput>& InBakedOutputs,
-		const FHoudiniBakeSettings& BakeSettings);
+		bool bReplaceActors);
 
 	static void DeleteBakedDataTableObjects(TArray<FHoudiniBakedOutput>& InBakedOutputs);
 
