@@ -4310,7 +4310,7 @@ FHoudiniEngineUtils::HapiSetAttributeDictionaryData(const TArray<FString>& JSOND
 	const HAPI_NodeId& InNodeId, const HAPI_PartId& InPartId, const FString& InAttributeName,
 	const HAPI_AttributeInfo& InAttributeInfo)
 {
-	H_SCOPED_FUNCTION_DYNAMIC_LABEL(InAttributeName);
+	SCOPED_FUNCTION_LABELLED_TIMER(InAttributeName);
 
 	TArray<const char *> RawStringData;
 	for (const FString& Data : JSONData)
@@ -4320,6 +4320,7 @@ FHoudiniEngineUtils::HapiSetAttributeDictionaryData(const TArray<FString>& JSOND
 
 	// Send strings in smaller chunks due to their potential size
 	int32 ChunkSize = (THRIFT_MAX_CHUNKSIZE / 100) / InAttributeInfo.tupleSize;
+	ChunkSize = 10;
 
 	HAPI_Result Result = HAPI_RESULT_FAILURE;
 	if (InAttributeInfo.count > ChunkSize)
@@ -8619,6 +8620,29 @@ FHoudiniEngineUtils::HapiConnectNodeInput(const int32& InNodeId, const int32& In
 
 	return true;
 }
+
+
+FString
+FHoudiniEngineUtils::JSONToString(const TSharedPtr<FJsonObject>& JSONObject)
+{
+	FString OutputString;
+	const TSharedRef< TJsonWriter<> > Writer = TJsonWriterFactory<>::Create(&OutputString);
+	FJsonSerializer::Serialize(JSONObject.ToSharedRef(), Writer);
+	return OutputString;
+}
+
+
+bool
+FHoudiniEngineUtils::JSONFromString(const FString& JSONString, TSharedPtr<FJsonObject>& OutJSONObject)
+{
+	TSharedRef< TJsonReader<> > Reader = TJsonReaderFactory<>::Create( JSONString );
+	if (!FJsonSerializer::Deserialize(Reader, OutJSONObject) || !OutJSONObject.IsValid())
+	{
+		return false;
+	}
+
+	return true;
+};
 
 
 void
