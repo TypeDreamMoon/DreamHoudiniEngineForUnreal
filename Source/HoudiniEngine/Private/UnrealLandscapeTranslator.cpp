@@ -281,8 +281,8 @@ FUnrealLandscapeTranslator::CreateMeshOrPointsFromLandscape(
 bool 
 FUnrealLandscapeTranslator::CreateHeightfieldFromLandscape(
 	ALandscapeProxy* LandscapeProxy,
-	bool bExportEditLayers,
 	bool bExportPaintLayers,
+	bool bExportPerLayerData,
 	HAPI_NodeId& CreatedHeightfieldNodeId, 
 	const FString& InputNodeNameStr,
 	HAPI_NodeId ParentNodeId,
@@ -378,24 +378,26 @@ FUnrealLandscapeTranslator::CreateHeightfieldFromLandscape(
 	};
 
 	//--------------------------------------------------------------------------------------------------
-	// Send target layer data to Houdini.
+	// Extract and convert all the layers
 	//--------------------------------------------------------------------------------------------------
+	ULandscapeInfo* LandscapeInfo = LandscapeProxy->GetLandscapeInfo();
+	if (!LandscapeInfo)
+		return false;
 
 	if (bExportPaintLayers)
 	{
-		if (!SendTargetLayersToHoudini(LandscapeProxy, HeightFieldId, PartId, MergeId, MaskId, bExportEditLayers, HeightfieldVolumeInfo, XSize, YSize, MergeInputIndex))
+		if (!ExtractAndConvertAllLandscapeLayers(LandscapeProxy, HeightFieldId, PartId, MergeId, MaskId, bExportPerLayerData, HeightfieldVolumeInfo, XSize, YSize, MergeInputIndex))
 			return false;
 	}
-
-
-	//--------------------------------------------------------------------------------------------------
-	// Create height field input for each editable landscape layer
-	//--------------------------------------------------------------------------------------------------
 
 	// We need a valid landscape actor to get the edit layers
 	ALandscape* Landscape = LandscapeProxy->GetLandscapeActor();
 	if(IsValid(Landscape) && bExportEditLayers)
 	{
+
+		//--------------------------------------------------------------------------------------------------
+		// Create height field input for each editable landscape layer
+		//--------------------------------------------------------------------------------------------------
 		HAPI_VolumeInfo LayerVolumeInfo;
 		FHoudiniApi::VolumeInfo_Init(&HeightfieldVolumeInfo);
 		
@@ -955,8 +957,8 @@ FUnrealLandscapeTranslator::CreateInputNodeForLandscapeObject(
 			// Export the whole landscape and its layer as a single heightfield node
 			bSuccess = FUnrealLandscapeTranslator::CreateHeightfieldFromLandscape(
 				InLandscape,
-				InInput->IsEditLayerExportEnabled(),
-				InInput->IsPaintLayerExportEnabled(), 
+				InInput->IsExportPaintLayersEnabled(),
+				InInput->IsPerLayerExportEnabled(), 
 				InputNodeId, 
 				FinalInputNodeName, 
 				ParentNodeId,
