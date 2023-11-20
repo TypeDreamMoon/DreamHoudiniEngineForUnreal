@@ -43,7 +43,7 @@ struct HOUDINIENGINE_API FUnrealLandscapeTranslator
 		// ------------------------------------------------------------------------------------------
 		static bool CreateHeightfieldFromLandscape(
 			ALandscapeProxy* LandcapeProxy,
-			bool bExportPaintLayers,
+			bool bExportCombinedHeightOnly,
 			bool bExportPerLayerData,
 			HAPI_NodeId& CreatedHeightfieldNodeId,
 			const FString &InputNodeNameStr,
