@@ -202,7 +202,6 @@ UHoudiniGeoImporter::CreateStaticMeshes(
 				OuterComponent,
 				bForceRebuild,
 				EHoudiniStaticMeshMethod::RawMesh_DEPRECATED,
-				bSplitMeshSupport,
 				InStaticMeshGenerationProperties,
 				InMeshBuildSettings);
 

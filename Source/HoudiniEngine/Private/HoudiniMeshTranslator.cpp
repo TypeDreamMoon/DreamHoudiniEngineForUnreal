@@ -523,7 +523,7 @@ FHoudiniMeshTranslator::UpdatePartColorsIfNeeded()
 	// Create the Static Mesh with the desired method
 	switch (InStaticMeshMethod)
 	{
-		case EHoudiniStaticMeshMethod::RawMesh:
+		case EHoudiniStaticMeshMethod::RawMesh_DEPRECATED:
 			CurrentTranslator.CreateStaticMesh_RawMesh();
 			break;
 
