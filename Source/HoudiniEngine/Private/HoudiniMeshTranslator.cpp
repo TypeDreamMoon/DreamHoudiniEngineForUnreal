@@ -8491,10 +8491,10 @@ FHoudiniMeshTranslator::CreateHoudiniStaticMeshesFromSplitGroups()
 	// Update the part's material's IDS and info now
 	CreateNeededMaterials();
 
-	//-----------------------------------------------------------------------------------------------------------------------------------------------
-	// Get a list of meshes to build.
-	// Fetch all part data that is need to generated meshes.
-	//-----------------------------------------------------------------------------------------------------------------------------------------------
+		new(Polygon->Vertices) FVector3f(Base + AxisX * UE_OLD_HALF_WORLD_MAX + AxisY * UE_OLD_HALF_WORLD_MAX);
+		new(Polygon->Vertices) FVector3f(Base + AxisX * UE_OLD_HALF_WORLD_MAX - AxisY * UE_OLD_HALF_WORLD_MAX);
+		new(Polygon->Vertices) FVector3f(Base - AxisX * UE_OLD_HALF_WORLD_MAX - AxisY * UE_OLD_HALF_WORLD_MAX);
+		new(Polygon->Vertices) FVector3f(Base - AxisX * UE_OLD_HALF_WORLD_MAX + AxisY * UE_OLD_HALF_WORLD_MAX);
 
 	UpdatePartVertexList();
 
