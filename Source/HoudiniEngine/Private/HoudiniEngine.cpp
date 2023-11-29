@@ -710,7 +710,7 @@ FHoudiniEngine::StartSession(HAPI_Session*& SessionPtr,
 		{
 			HOUDINI_LOG_MESSAGE(TEXT("Session type set to None, Cooking is disabled."));
 			// Disable session sync
-			bEnableSessionSync = false;
+			bEnableSessionSync = false;			
 		}
 		break;
 
@@ -728,7 +728,7 @@ FHoudiniEngine::StartSession(HAPI_Session*& SessionPtr,
 		{
 			HOUDINI_LOG_ERROR(TEXT("Unsupported Houdini Engine session type"));
 			// Disable session sync
-			bEnableSessionSync = false;
+			bEnableSessionSync = false;		
 		}
 		break;
 	}
