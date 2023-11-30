@@ -478,27 +478,30 @@ FHoudiniMeshTranslator::UpdatePartColorsIfNeeded()
 		return true;
 	}
 
-	// Handle Skeletal Meshes here
-	if (FHoudiniSkeletalMeshTranslator::HasSkeletalMeshData(InHGPO.GeoId, InHGPO.PartId))
-	{
-		FHoudiniSkeletalMeshTranslator SKMeshTranslator;
-		SKMeshTranslator.SetHoudiniGeoPartObject(InHGPO);
-		SKMeshTranslator.SetOutputObjects(OutOutputObjects);
-		SKMeshTranslator.SetPackageParams(InPackageParams, true);
-
-		if (SKMeshTranslator.CreateSkeletalMesh_SkeletalMeshImportData())
-		{
-			// Copy the output objects/materials
-			OutOutputObjects = SKMeshTranslator.OutputObjects;
-			//AssignmentMaterialMap = SKMT.OutputAssignmentMaterials;
-
-			return true;
-		}
-		else
-		{
-			return false;
-		}
-	}
+	// NOTE: We can't handle skeletal meshes here. Skeletal meshes now consist of multiple HGPOs and we have to
+	// aggregate the HGPO that belong to the same Skeletal Mesh and process them as a single unit.
+	// // Handle Skeletal Meshes here
+	// if (FHoudiniSkeletalMeshTranslator::HasSkeletalMeshData(InHGPO.GeoId, InHGPO.PartId))
+	// {
+	// 	FHoudiniSkeletalMeshTranslator SKMeshTranslator;
+	// 	SKMeshTranslator.SetHoudiniSkeletalMeshParts(InHGPO);
+	// 	SKMeshTranslator.SetInputObjects(InOutputObjects);
+	// 	SKMeshTranslator.SetOutputObjects(OutOutputObjects);
+	// 	SKMeshTranslator.SetPackageParams(InPackageParams, true);
+	//
+	// 	if (SKMeshTranslator.CreateSkeletalMesh_SkeletalMeshImportData())
+	// 	{
+	// 		// Copy the output objects/materials
+	// 		OutOutputObjects = SKMeshTranslator.OutputObjects;
+	// 		//AssignmentMaterialMap = SKMT.OutputAssignmentMaterials;
+	//
+	// 		return true;
+	// 	}
+	// 	else
+	// 	{
+	// 		return false;
+	// 	}
+	// }
 
 	// Create a new mesh translator to handle the output data creation
 	FHoudiniMeshTranslator CurrentTranslator;
@@ -1022,102 +1025,9 @@ FHoudiniMeshTranslator::UpdateStaticMeshNaniteSettings(const int32& GeoId, const
 void FHoudiniMeshTranslator::CopyAttributesFromHGPOForSplit(
 	const FHoudiniGeoPartObject& InHGPO, const int32 InPointIndex, const int32 InPrimIndex, TMap<FString, FString>& OutAttributes, TMap<FString, FString>& OutTokens)
 {
-	// Get all the supported attributes from the HGPO
-	{
-		FString TempFolder;
-		if (FHoudiniEngineUtils::GetTempFolderAttribute(InHGPO.GeoId, TempFolder, InHGPO.PartId, InPrimIndex))
-		{
-			if (!TempFolder.IsEmpty())
-			{
-				// cache the level path attribute on the output object
-				OutAttributes.Add(HAPI_UNREAL_ATTRIB_TEMP_FOLDER, TempFolder);
-			}
-		}
-	}
+	TRACE_CPUPROFILER_EVENT_SCOPE(TEXT("FHoudiniMeshTranslator::UpdatePartUVSetsIfNeeded"));
 
-	{
-		FString LevelPath;
-		if (FHoudiniEngineUtils::GetLevelPathAttribute(InHGPO.GeoId, InHGPO.PartId, LevelPath, InPointIndex, InPrimIndex))
-		{
-			if (!LevelPath.IsEmpty())
-			{
-				// cache the level path attribute on the output object
-				OutAttributes.Add(HAPI_UNREAL_ATTRIB_LEVEL_PATH, LevelPath);
-			}
-		}
-	}
-
-	{
-		FString OutputName;
-		if (FHoudiniEngineUtils::GetOutputNameAttribute(InHGPO.GeoId, InHGPO.PartId, OutputName, InPointIndex, InPrimIndex))
-		{
-			if (!OutputName.IsEmpty())
-			{
-				// cache the output name attribute on the output object
-				OutAttributes.Add(HAPI_UNREAL_ATTRIB_CUSTOM_OUTPUT_NAME_V2, OutputName);
-			}
-		}
-	}
-
-	{
-		FString BakeName;
-		if (FHoudiniEngineUtils::GetBakeNameAttribute(InHGPO.GeoId, InHGPO.PartId, BakeName, InPointIndex, InPrimIndex))
-		{
-			if (!BakeName.IsEmpty())
-			{
-				// cache the bake name attribute on the output object
-				OutAttributes.Add(HAPI_UNREAL_ATTRIB_BAKE_NAME, BakeName);
-			}
-		}
-	}
-
-	{
-		int32 TileValue;
-		if (FHoudiniEngineUtils::GetTileAttribute(InHGPO.GeoId, InHGPO.PartId, TileValue, InPointIndex, InPrimIndex))
-		{
-			if (TileValue >= 0)
-			{
-				// cache the tile attribute as a token on the output object
-				OutTokens.Add(TEXT("tile"), FString::FromInt(TileValue));
-			}
-		}
-	}
-
-	{
-		FString BakeOutputActorName;
-		if (FHoudiniEngineUtils::GetBakeActorAttribute(InHGPO.GeoId, InHGPO.PartId, BakeOutputActorName, InPointIndex, InPrimIndex))
-		{
-			if (!BakeOutputActorName.IsEmpty())
-			{
-				// cache the bake actor attribute on the output object
-				OutAttributes.Add(HAPI_UNREAL_ATTRIB_BAKE_ACTOR, BakeOutputActorName);
-			}
-		}
-	}
-
-	{
-		FString BakeOutputActorClassName;
-		if (FHoudiniEngineUtils::GetBakeActorClassAttribute(InHGPO.GeoId, InHGPO.PartId, BakeOutputActorClassName, InPointIndex, InPrimIndex))
-		{
-			if (!BakeOutputActorClassName.IsEmpty())
-			{
-				// cache the bake actor attribute on the output object
-				OutAttributes.Add(HAPI_UNREAL_ATTRIB_BAKE_ACTOR_CLASS, BakeOutputActorClassName);
-			}
-		}
-	}
-
-	{
-		FString BakeFolder;
-		if (FHoudiniEngineUtils::GetBakeFolderAttribute(InHGPO.GeoId, InHGPO.PartId, BakeFolder, InPrimIndex))
-		{
-			if (!BakeFolder.IsEmpty())
-			{
-				// cache the unreal_bake_folder attribute on the output object
-				OutAttributes.Add(HAPI_UNREAL_ATTRIB_BAKE_FOLDER, BakeFolder);
-			}
-		}
-	}
+	FHoudiniEngineUtils::UpdateMeshPartUVSets(HGPO.GeoId, HGPO.PartId, bRemoveUnused, PartUVSets, AttribInfoUVSets);
 
 	{
 		FString BakeOutlinerFolder;
