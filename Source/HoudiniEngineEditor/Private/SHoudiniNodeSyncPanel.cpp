@@ -647,8 +647,8 @@ SHoudiniNodeSyncPanel::Construct( const FArguments& InArgs )
 						.Visibility(EVisibility::Visible)
 						.OnClicked_Lambda([]()
 						{
-							UHoudiniEditorSubsystem* HoudiniEditorSubsystem = GEditor->GetEditorSubsystem<UHoudiniEditorSubsystem>();
-							HoudiniEditorSubsystem->Fetch();
+							UHoudiniEditorNodeSyncSubsystem* HoudiniEditorNodeSyncSubsystem = GEditor->GetEditorSubsystem<UHoudiniEditorNodeSyncSubsystem>();
+							HoudiniEditorNodeSyncSubsystem->FetchFromHoudini();
 							return FReply::Handled();
 						})
 						.Content()
