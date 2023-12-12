@@ -10377,7 +10377,7 @@ FHoudiniMeshTranslator::CreateStaticMesh(const FString & MeshName, int NumLODs)
 	UStaticMesh* StaticMesh = CreateNewStaticMesh(MeshName);
 
 	if (!IsValid(StaticMesh))
-		return false;
+		return nullptr;
 
 	int NeededNumberOfLODs = 1;
 
