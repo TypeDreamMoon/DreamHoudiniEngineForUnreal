@@ -340,7 +340,7 @@ FHoudiniOutputTranslator::UpdateOutputs(
 				FHoudiniMeshTranslator::CreateAllMeshesAndComponentsFromHoudiniOutput(
 					CurOutput, 
 					PackageParams, 
-					MeshMethod,
+					bIsProxyStaticMeshEnabled ? EHoudiniStaticMeshMethod::UHoudiniStaticMesh : HAC->StaticMeshMethod,
 					HAC->bSplitMeshSupport,
 					HAC->StaticMeshGenerationProperties,
 					HAC->StaticMeshBuildSettings,
@@ -756,6 +756,7 @@ FHoudiniOutputTranslator::BuildStaticMeshesOnHoudiniProxyMeshOutputs(UHoudiniAss
 					CurOutput,
 					PackageParams,
 					HAC->StaticMeshMethod != EHoudiniStaticMeshMethod::UHoudiniStaticMesh ? HAC->StaticMeshMethod : EHoudiniStaticMeshMethod::RawMesh_DEPRECATED,
+					HAC->bSplitMeshSupport,
 					HAC->StaticMeshGenerationProperties,
 					HAC->StaticMeshBuildSettings,
 					AllOutputMaterials,

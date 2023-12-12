@@ -50,6 +50,7 @@ class UHoudiniStaticMeshComponent;
 
 struct FKAggregateGeom;
 struct FHoudiniGenericAttribute;
+struct FHoudiniMeshesToBuild;
 
 UENUM()
 enum class EHoudiniSplitType : uint8
@@ -71,7 +72,7 @@ enum class EHoudiniSplitType : uint8
 };
 
 
-enum class EHoudiniCollisionType : uint8
+enum EHoudiniCollisionType
 {
 	None,
 	MainMesh,
@@ -131,11 +132,9 @@ struct FHoudiniSplitGroupMesh
 	// If this mesh is to be used a custom complex collider, this is its name.
 	FString CustomCollisionOwner;
 
-	bool bIsVisible = true;
-
 	// Static Mesh generated.
-	UStaticMesh* UnrealStaticMesh = nullptr;
-	UHoudiniStaticMesh * HoudiniStaticMesh = nullptr;
+	UStaticMesh* StaticMesh;
+
 	// Output identifier.
 	FHoudiniOutputObjectIdentifier OutputObjectIdentifier;
 
@@ -293,6 +292,8 @@ struct HOUDINIENGINE_API FHoudiniMeshTranslator
 
 		// Legacy function using RawMesh for static Mesh creation
 		bool CreateStaticMesh_RawMesh();
+
+		bool CreateStaticMeshesFromSplitGroups();
 
 		// Indicates the update is forced
 		bool ForceRebuild;
@@ -595,21 +596,8 @@ struct HOUDINIENGINE_API FHoudiniMeshTranslator
 
 		bool CreateStaticMeshFromSplitGroups(const FString & Name, FHoudiniSplitGroupMesh & Mesh);
 
-		bool CreateHoudiniStaticMeshFromSplitGroups(const FString& Name, FHoudiniSplitGroupMesh& Mesh,
-			TMap<HAPI_NodeId, UMaterialInterface*> & MapHoudiniMatIdToUnrealInterface,
-			TMap<FHoudiniMaterialIdentifier, UMaterialInterface*> & MapHoudiniMatAttributesToUnrealInterface,
-			TMap<UHoudiniStaticMesh*, TMap<UMaterialInterface*, int32>> & MapUnrealMaterialInterfaceToUnrealIndexPerMesh);
-
 		void UpdateSplitGroups();
 
 		bool ParseSplitToken(FString& Name, const FString& Token);
 
-		void BuildHoudiniMesh(const FString & SplitGroupName, UHoudiniStaticMesh *FoundStaticMesh);
-
-		void ProcessMaterialsForHSM(
-					const FString& SplitGroupName, 
-					UHoudiniStaticMesh* FoundStaticMesh,
-					TMap<HAPI_NodeId, UMaterialInterface*> & MapHoudiniMatIdToUnrealInterface,
-					TMap<FHoudiniMaterialIdentifier, UMaterialInterface*> & MapHoudiniMatAttributesToUnrealInterface,
-					TMap<UHoudiniStaticMesh*, TMap<UMaterialInterface*, int32>> & MapUnrealMaterialInterfaceToUnrealIndexPerMesh);
 };
