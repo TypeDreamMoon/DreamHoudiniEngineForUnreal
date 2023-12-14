@@ -26,7 +26,6 @@
 
 #pragma once
 
-#include "Engine/SkeletalMesh.h"
 #include "HAPI/HAPI_Common.h"
 
 #include "CoreMinimal.h"
