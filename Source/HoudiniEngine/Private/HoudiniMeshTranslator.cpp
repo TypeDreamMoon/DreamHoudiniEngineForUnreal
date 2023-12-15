@@ -4646,17 +4646,8 @@ FHoudiniMeshTranslator::CreateHoudiniStaticMesh()
 			const int32 NumTriangles = TriangleIndices.Num() / 3;
 			const bool bHasPerFaceMaterials = PartFaceMaterialOverrides.Num() > 0 || (PartUniqueMaterialIds.Num() > 0 && !bOnlyOneFaceMaterial);
 
-			FoundStaticMesh->Initialize(
-				NumVertexPositions,
-				NumTriangles,
-				NumUVLayers,											   // NumUVLayers
-				0,														   // InitialNumStaticMaterials
-				NormalCount > 0,										   // HasNormals
-				bReadTangents || bGenerateTangentsFromNormalAttribute,	   // HasTangents
-				bSplitColorValid,										   // HasColors
-				bHasPerFaceMaterials									   // HasPerFaceMaterials
-			);
-
+		if (bRebuildStaticMesh)
+		{
 			//--------------------------------------------------------------------------------------------------------------------- 
 			// POSITIONS
 			//--------------------------------------------------------------------------------------------------------------------- 
