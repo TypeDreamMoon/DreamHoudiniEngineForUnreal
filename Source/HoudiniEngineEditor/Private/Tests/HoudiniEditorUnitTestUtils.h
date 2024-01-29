@@ -29,7 +29,6 @@
 #include "CoreMinimal.h"
 #include "HoudiniEditorAssetStateSubsystem.h"
 #include "HoudiniEditorTestUtils.h"
-#include "HoudiniEngineBakeUtils.h"
 #include "HoudiniOutput.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
@@ -56,9 +55,7 @@ class UHoudiniAssetComponent;
 
 struct FHoudiniEditorUnitTestUtils
 {
-	static UHoudiniAssetComponent* LoadHDAIntoNewMap(const FString& PackageName, const FTransform& Transform, bool bOpenWorld);
-
-	static FString GetAbsolutePathOfProjectFile(const FString & Object);
+	static UHoudiniAssetComponent* LoadHDAIntoNewMap(const FString& PackageName, const FTransform& Transform);
 
 	// Helper function to returns components from an output.
 	template<typename COMPONENT_TYPE>
@@ -78,23 +75,6 @@ struct FHoudiniEditorUnitTestUtils
 						Results.Add(Out);
 					}
 				}
-			}
-		}
-		return  Results;
-	}
-
-	// Helper function to returns components from a baked output.
-	template<typename COMPONENT_TYPE>
-	static TArray<COMPONENT_TYPE*>  GetOutputsWithComponent(const TArray<FHoudiniEngineBakedActor>& Outputs)
-	{
-		TArray<COMPONENT_TYPE*> Results;
-
-		for (const FHoudiniEngineBakedActor & Output : Outputs)
-		{
-			if (IsValid(Output.BakedComponent) && Output.BakedComponent->GetClass() == COMPONENT_TYPE::StaticClass())
-			{
-				COMPONENT_TYPE* Out = Cast<COMPONENT_TYPE>(Output.BakedComponent);
-				Results.Add(Out);
 			}
 		}
 		return  Results;
@@ -147,26 +127,17 @@ struct FHoudiniEditorUnitTestUtils
 	}
 
 	static AActor* GetActorWithName(UWorld* World, FString& Name);
+	static bool IsHDAIdle(UHoudiniAssetComponent* HAC);
 
-	static UHoudiniParameter * GetTypedParameter(UHoudiniAssetComponent * HAC, UClass * Class, const char* Name);
-
-	template <typename TYPED_PARAMETER>
-	static TYPED_PARAMETER*  GetTypedParameter(UHoudiniAssetComponent* HAC, const char * Name)
-	{
-		return Cast<TYPED_PARAMETER>(GetTypedParameter(HAC, TYPED_PARAMETER::StaticClass(), Name));
-	}
 
 };
-
 
 // Helper macro to set parm, ensures the parameter is valid.
 #define SET_HDA_PARAMETER(_HAC, _PARAMETER_TYPE, _PARAMATER_NAME, _PARAMETER_VALUE, _PARAMETER_INDEX)\
 	{\
-		_PARAMETER_TYPE* __Parameter = FHoudiniEditorUnitTestUtils::GetTypedParameter<_PARAMETER_TYPE>(_HAC, _PARAMATER_NAME);\
+		_PARAMETER_TYPE* __Parameter = Cast<_PARAMETER_TYPE>(_HAC->FindParameterByName(_PARAMATER_NAME));\
 		if (!TestNotNull(#_PARAMATER_NAME, __Parameter))\
-		{\
 			return true;\
-		}\
 		__Parameter->SetValueAt(_PARAMETER_VALUE, _PARAMETER_INDEX);\
 	}
 
@@ -178,36 +149,22 @@ struct FHoudiniTestContext
 	//
 	// The "Data" map can be used to pass data between tests.
 	//
-	FHoudiniTestContext(FAutomationTestBase* CurrentTest,
-		const FString& HDAName,
-		const FTransform& Transform,
-		bool bOpenWorld);
 
-	~FHoudiniTestContext();
+	FHoudiniTestContext(FAutomationTestBase* CurrentTest)
+	{
+		TimeStarted = FPlatformTime::Seconds();
+		Test = CurrentTest;
+	}
 
-	// Starts cooking the HDA asynchrously.
 	void StartCookingHDA();
 
-	// Starts cooking the Selected top network in the HDA asynchronously.
-	void StartCookingSelectedTOPNetwork();
-
-	// Bakes the top network. Synchronous, returns the baked actors.
-	TArray<FHoudiniEngineBakedActor> BakeSelectedTopNetwork();
-
-	double MaxTime = 120.0f;						// Max time (seconds) this test can run.
+	double MaxTime = 15.0f;						// Max time (seconds) this test can run.
 	double TimeStarted = 0.0f;					// Time this test started. Used to test for timeout.
 
 	FAutomationTestBase* Test = nullptr;		// Unit test underway
 	UHoudiniAssetComponent* HAC = nullptr;		// HAC being tested
 	TMap<FString, FString> Data;				// Use this to pass data between different tests.
 	bool bCookInProgress = false;
-	bool bPostOutputDelegateCalled = false;
-	bool bPDGCookInProgress = false;
-	bool bPDGPostCookDelegateCalled = false;
-
-private:
-	FDelegateHandle OutputDelegateHandle;
-
 };
 
 class FHoudiniLatentTestCommand : public FFunctionLatentCommand

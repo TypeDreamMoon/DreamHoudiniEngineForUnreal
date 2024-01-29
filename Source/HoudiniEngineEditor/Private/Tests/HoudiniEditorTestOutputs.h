@@ -29,5 +29,12 @@
 
 #include "CoreMinimal.h"
 
+// Class just for containing static member variables
+class FHoudiniEditorTestsOutputsTests
+{
+public:
+
+};
+
 #endif
 
