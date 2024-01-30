@@ -72,9 +72,18 @@
 #include "ScopedTransaction.h"
 #include "Sound/SoundBase.h"
 #include "UnrealEdGlobals.h"
-#include "Animation/AnimSequence.h"
-#include "Editor/UnrealEdEngine.h"
-#include "Editor/PropertyEditor/Public/PropertyCustomizationHelpers.h"
+#include "Widgets/Images/SImage.h"
+#include "Widgets/Input/SButton.h"
+#include "Widgets/Input/SEditableTextBox.h"
+#include "Widgets/Input/SCheckBox.h"
+#include "Widgets/Input/SVectorInputBox.h"
+#include "Widgets/Input/SRotatorInputBox.h"
+#include "Widgets/Layout/SBox.h"
+#include "Widgets/Text/STextBlock.h"
+
+#if ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION > 1
+	#include "Engine/SkinnedAssetCommon.h"
+#endif
 
 #if ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION >= 3
 	#include "GeometryCollection/GeometryCollectionActor.h"
