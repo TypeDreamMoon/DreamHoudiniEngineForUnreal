@@ -78,6 +78,7 @@
 #include "Engine/UserDefinedStruct.h"
 #include "HoudiniHLODLayerUtils.h"
 #include <HoudiniAnimationTranslator.h>
+#include "HoudiniFoliageUtils.h"
 
 #define LOCTEXT_NAMESPACE HOUDINI_LOCTEXT_NAMESPACE
 

@@ -151,6 +151,7 @@
 #include "UObject/TextProperty.h"
 #include "UObject/UObjectGlobals.h"
 #include "UserDefinedStructure/UserDefinedStructEditorData.h"
+#include "HoudiniFoliageUtils.h"
 
 
 HOUDINI_BAKING_DEFINE_LOG_CATEGORY();
