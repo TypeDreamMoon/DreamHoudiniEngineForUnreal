@@ -330,6 +330,138 @@ FHoudiniMeshTranslator::UpdateSplitsFacesAndIndices()
 				FistUnusedPrimIndex = SplitFaceIdx;
 			}
 		}
+		else
+		{
+			// Create a new SMC if needed
+			UObject* Mesh = OutputObject.OutputObject;
+			if (!IsValid(Mesh))
+			{
+				HOUDINI_LOG_ERROR(TEXT("Mesh is invalid (wrong type or pending kill)..."));
+				continue;
+			}
+
+			const FHoudiniGeoPartObject* FoundHGPO = nullptr;
+			UMeshComponent* MeshComponent = nullptr;
+			if (Mesh->IsA<UStaticMesh>())
+			{
+				TSubclassOf<UMeshComponent> ComponentType = UStaticMeshComponent::StaticClass();
+				bool bCreated = false;
+				MeshComponent = CreateOrUpdateMeshComponent(InOutput, InOuterComponent, OutputIdentifier, ComponentType, OutputObject, FoundHGPO, bCreated);
+				if (MeshComponent)
+				{
+					UActorComponent* ProxyComponent = Cast<UActorComponent>(OutputObject.ProxyComponent);
+					if (IsValid(ProxyComponent))
+					{
+						// If this static mesh component has a proxy component, it was likely refined from the proxy component.
+						// This means that if the user enabled KeepTags, tags would have accumulated on the Proxy component so
+						// we need to copy the proxy mesh component tags over to the static mesh.
+						MeshComponent->ComponentTags = ProxyComponent->ComponentTags;
+					}
+					
+					UpdateMeshComponent(
+						MeshComponent,
+						Mesh,
+						OutputIdentifier,
+						OutputObject,
+						FoundHGPO,
+						InOutput->HoudiniCreatedSocketActors,
+						InOutput->HoudiniAttachedSocketActors,
+						bInApplyGenericProperties);
+
+					// UE5: Make sure we update/recreate the Component's render state
+					// after the update or the mesh component will not be rendered!
+					if (MeshComponent->IsRenderStateCreated())
+					{
+						// Need to send this to render thread at some point
+						MeshComponent->MarkRenderStateDirty();
+					}
+					else if (MeshComponent->ShouldCreateRenderState())
+					{
+						// If we didn't have a valid StaticMesh assigned before
+						// our render state might not have been created so
+						// do it now.
+						MeshComponent->RecreateRenderState_Concurrent();
+					}
+				}
+			}
+			else if (Mesh->IsA<USkeletalMesh>())
+			{
+				
+				TSubclassOf<UMeshComponent> SKComponentType = USkeletalMeshComponent::StaticClass();
+				bool bSKCreated = false;
+				MeshComponent = CreateOrUpdateMeshComponent(InOutput, InOuterComponent, OutputIdentifier, SKComponentType, OutputObject, FoundHGPO, bSKCreated);
+				if (MeshComponent)
+				{
+					UpdateMeshComponent(
+						MeshComponent,
+						Mesh,
+						OutputIdentifier,
+						OutputObject,
+						FoundHGPO,
+						InOutput->HoudiniCreatedSocketActors,
+						InOutput->HoudiniAttachedSocketActors,
+						bInApplyGenericProperties);
+
+					USkeletalMeshComponent* SKMC = Cast<USkeletalMeshComponent>(MeshComponent);
+					if (IsValid(SKMC))
+					{
+						USkeletalMesh* SKMesh = Cast<USkeletalMesh>(Mesh);
+						if (IsValid(SKMesh))
+						{
+							SKMC->SetSkeletalMesh(SKMesh);
+						}
+
+						// TODO: we're currently unable to retrieve point position on the SK mesh/pose? 
+						/*
+						// Skeletal Mesh need to get their transform set separtely from the shape instancer's point transform
+						//if (FoundHGPO != nullptr)
+						for (auto& CurHGPO : InOutput->HoudiniGeoPartObjects)
+						{
+							// Retrieve Position
+							HAPI_AttributeInfo PointInfo;
+							FHoudiniApi::AttributeInfo_Init(&PointInfo);
+
+							HAPI_Result PointInfoResult = FHoudiniApi::GetAttributeInfo(
+								FHoudiniEngine::Get().GetSession(),
+								CurHGPO.GeoId, CurHGPO.PartId,
+								HAPI_UNREAL_ATTRIB_POSITION, HAPI_AttributeOwner::HAPI_ATTROWNER_POINT, &PointInfo);
+
+							TArray<FVector3f> PositionData;
+							PositionData.SetNum(PointInfo.count);  //dont need * PositionInfo.tupleSize, its already a vector container
+							FHoudiniApi::GetAttributeFloatData(
+								FHoudiniEngine::Get().GetSession(),
+								CurHGPO.GeoId, CurHGPO.PartId, HAPI_UNREAL_ATTRIB_POSITION, &PointInfo, -1, (float*)&PositionData[0], 0, PointInfo.count);
+
+							if (PositionData.Num() > 0)
+							{
+								SKMC->SetRelativeLocation(FVector3d(FHoudiniEngineUtils::ConvertHoudiniPositionToUnrealVector3f(PositionData[0])));
+							}
+
+						}
+						else
+						{
+							TArray<FTransform> Transforms;
+							for (auto& CurHGPO : InOutput->HoudiniGeoPartObjects)
+							{
+								if (FHoudiniInstanceTranslator::HapiGetInstanceTransforms(CurHGPO, Transforms))
+								{
+									SKMC->SetRelativeTransform(Transforms[0]);
+								}
+							}
+						}
+						*/
+					}
+				}
+			}
+
+			// Now, ensure that proxies replaced by meshes are still kept but hidden
+			UHoudiniStaticMeshComponent* HSMC = Cast<UHoudiniStaticMeshComponent>(OutputObject.ProxyComponent);
+			if (HSMC)
+			{
+				HSMC->SetVisibility(false);
+				HSMC->SetHiddenInGame(true);
+				HSMC->SetHoudiniIconVisible(false);
+			}
 
 		// We store the remaining geo vertex list as a special split named "main geo"
 		// and make sure its treated before the collider meshes
@@ -8987,13 +9119,20 @@ void FHoudiniMeshTranslator::BuildHoudiniMesh(const FString& SplitGroupName, UHo
 			SplitVertexList, AttribInfoUVSets[TexCoordIdx], PartUVSets[TexCoordIdx], SplitUVSets[TexCoordIdx]);
 		if (SplitUVSets[TexCoordIdx].Num() > 0)
 		{
-			NumUVLayers++;
+			OutFoundHGPO = &curHGPO;
+			break;
+		}
+
+		if (InOutput->GetType() == EHoudiniOutputType::Skeletal)
+		{
+			OutFoundHGPO = &curHGPO;
+			break;
 		}
 	}
 
-	//--------------------------------------------------------------------------------------------------------------------- 
-	// MATERIAL ATTRIBUTE OVERRIDES
-	//---------------------------------------------------------------------------------------------------------------------
+	// No need to create a component for instanced static meshes!
+	if (OutFoundHGPO && OutFoundHGPO->bIsInstanced)// && InOutput->GetType() != EHoudiniOutputType::Skeletal)
+		return nullptr;
 
 	// TODO: These are actually per faces, not per vertices...
 	// Need to update!!
