@@ -26,9 +26,6 @@
 
 #pragma once
 
-#include "FoliageType.h"
-#include "InstancedFoliageActor.h"
-
 class HOUDINIENGINERUNTIME_API FHoudiniFoliageUtils
 {
 public:
