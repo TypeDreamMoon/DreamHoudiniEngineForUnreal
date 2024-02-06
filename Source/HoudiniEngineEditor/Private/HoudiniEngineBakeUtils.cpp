@@ -7549,7 +7549,8 @@ bool FHoudiniEngineBakeUtils::BakePDGAssetLinkOutputsKeepActors(
 	EPDGBakeSelectionOption InBakeSelectionOption,
 	EPDGBakePackageReplaceModeOption InPDGBakePackageReplaceMode,
 	bool bInRecenterBakedActors,
-	FHoudiniBakedObjectData& BakedObjectData, 
+	TArray<UPackage*>& PackagesToSave,
+	FHoudiniEngineOutputStats& BakeStats,
 	TArray<FHoudiniEngineBakedActor>& BakedActors)
 {
 	if (!IsValid(InPDGAssetLink))
@@ -7572,17 +7573,17 @@ bool FHoudiniEngineBakeUtils::BakePDGAssetLinkOutputsKeepActors(
 				if (!IsValid(Node))
 					continue;
 
-				bSuccess &= BakePDGTOPNodeOutputsKeepActors(InPDGAssetLink, Node, bBakeBlueprints, bIsAutoBake, InPDGBakePackageReplaceMode, BakedActors, BakedObjectData);
+				bSuccess &= BakePDGTOPNodeOutputsKeepActors(InPDGAssetLink, Node, bBakeBlueprints, bIsAutoBake, InPDGBakePackageReplaceMode, BakedActors, PackagesToSave, BakeStats);
 			}
 		}
 		break;
 
 	case EPDGBakeSelectionOption::SelectedNetwork:
-		bSuccess = BakePDGTOPNetworkOutputsKeepActors(InPDGAssetLink, InPDGAssetLink->GetSelectedTOPNetwork(), bBakeBlueprints, bIsAutoBake, InPDGBakePackageReplaceMode, BakedActors, BakedObjectData);
+		bSuccess = BakePDGTOPNetworkOutputsKeepActors(InPDGAssetLink, InPDGAssetLink->GetSelectedTOPNetwork(), bBakeBlueprints, bIsAutoBake, InPDGBakePackageReplaceMode, BakedActors, PackagesToSave, BakeStats);
 		break;
 
 	case EPDGBakeSelectionOption::SelectedNode:
-		bSuccess = BakePDGTOPNodeOutputsKeepActors(InPDGAssetLink, InPDGAssetLink->GetSelectedTOPNode(), bBakeBlueprints, bIsAutoBake, InPDGBakePackageReplaceMode, BakedActors, BakedObjectData);
+		bSuccess = BakePDGTOPNodeOutputsKeepActors(InPDGAssetLink, InPDGAssetLink->GetSelectedTOPNode(), bBakeBlueprints, bIsAutoBake, InPDGBakePackageReplaceMode, BakedActors, PackagesToSave, BakeStats);
 		break;
 	}
 
@@ -7609,7 +7610,7 @@ bool FHoudiniEngineBakeUtils::BakePDGAssetLinkOutputsKeepActors(
 
 	{
 		const FString FinishedTemplate = TEXT("Baking finished. Created {0} packages. Updated {1} packages.");
-		FString Msg = FString::Format(*FinishedTemplate, { BakedObjectData.BakeStats.NumPackagesCreated, BakedObjectData.BakeStats.NumPackagesUpdated });
+		FString Msg = FString::Format(*FinishedTemplate, { BakeStats.NumPackagesCreated, BakeStats.NumPackagesUpdated });
 		FHoudiniEngine::Get().FinishTaskSlateNotification(FText::FromString(Msg));
 	}
 
@@ -7626,7 +7627,8 @@ FHoudiniEngineBakeUtils::BakePDGAssetLinkOutputsKeepActors(
 	EPDGBakePackageReplaceModeOption InPDGBakePackageReplaceMode, 
 	bool bInRecenterBakedActors)
 {
-	FHoudiniBakedObjectData BakedObjectData;
+	TArray<UPackage*> PackagesToSave;
+	FHoudiniEngineOutputStats BakeStats;
 	TArray<FHoudiniEngineBakedActor> BakedActors;
 
 	bool bSuccess = BakePDGAssetLinkOutputsKeepActors(
@@ -7634,7 +7636,8 @@ FHoudiniEngineBakeUtils::BakePDGAssetLinkOutputsKeepActors(
 		InBakeSelectionOption,
 		InPDGBakePackageReplaceMode,
 		bInRecenterBakedActors,
-		BakedObjectData,
+		PackagesToSave,
+		BakeStats,
 		BakedActors);
 
 	return bSuccess;
