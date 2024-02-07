@@ -156,6 +156,96 @@ UHoudiniGeoImporter::BuildOutputsForNode(
 	return BuildAllOutputsForNode(InNodeId, this, InOldOutputs, OutNewOutputs, bInAddOutputsToRootSet, bInUseOutputNodes);
 }
 
+bool UHoudiniGeoImporter::CreateObjectsFromOutputs(
+	TArray<UHoudiniOutput*>& InOutputs,
+	FHoudiniPackageParams InPackageParams,
+	const FHoudiniStaticMeshGenerationProperties& InStaticMeshGenerationProperties,
+	const FMeshBuildSettings& InMeshBuildSettings,
+	TMap<FHoudiniOutputObjectIdentifier, FHoudiniInstancedOutputPartData>* OutInstancedOutputPartData)
+{
+	//
+	// This isn't ideal but the reason we do this is because previously each 
+	// method we call (i.e. CreateCurves) would filter the outputs we pass in.
+	// This way, we loop through the array of outputs only once.
+	//
+	// The reason we cannot have methods for individual outputs is that some
+	// output types, like curves, are merged together into a single blueprint.
+	//
+	TArray<UHoudiniOutput*> MeshOutputs;
+	TArray<UHoudiniOutput*> CurveOutputs;
+	TArray<UHoudiniOutput*> LandscapeOutputs;
+	TArray<UHoudiniOutput*> LandscapeSplineOutputs;
+	TArray<UHoudiniOutput*> InstancerOutputs;
+	TArray<UHoudiniOutput*> DataTableOutputs;
+	TArray<UHoudiniOutput*> SkeletalOutputs;
+	TArray<UHoudiniOutput*> AnimSequenceOutputs;
+
+	for (UHoudiniOutput* const Output : InOutputs)
+	{
+		switch (Output->GetType())
+		{
+		case EHoudiniOutputType::Mesh:
+			MeshOutputs.Add(Output);
+			break;
+		case EHoudiniOutputType::Curve:
+			CurveOutputs.Add(Output);
+			break;
+		case EHoudiniOutputType::Landscape:
+			LandscapeOutputs.Add(Output);
+			break;
+		case EHoudiniOutputType::LandscapeSpline:
+			LandscapeSplineOutputs.Add(Output);
+			break;
+		case EHoudiniOutputType::Instancer:
+			InstancerOutputs.Add(Output);
+			break;
+		case EHoudiniOutputType::DataTable:
+			DataTableOutputs.Add(Output);
+			break;
+		case EHoudiniOutputType::Skeletal:
+			SkeletalOutputs.Add(Output);
+			break;
+		case EHoudiniOutputType::AnimSequence:
+			AnimSequenceOutputs.Add(Output);
+			break;
+		}
+	}
+
+	if (!CreateStaticMeshes(MeshOutputs, InPackageParams, InStaticMeshGenerationProperties, InMeshBuildSettings))
+		return false;
+
+	if (!CreateCurves(CurveOutputs, InPackageParams))
+		return false;
+
+	if (!CreateLandscapes(LandscapeOutputs, InPackageParams))
+		return false;
+
+	if (!CreateLandscapeSplines(LandscapeSplineOutputs, InPackageParams))
+		return false;
+
+	if (OutInstancedOutputPartData)
+	{
+		if (!CreateInstancerOutputPartData(InstancerOutputs, *OutInstancedOutputPartData))
+			return false;
+	}
+	else
+	{
+		if (!CreateInstancers(InOutputs, InstancerOutputs, InPackageParams))
+			return false;
+	}
+
+	if (!CreateDataTables(DataTableOutputs, InPackageParams))
+		return false;
+
+	if (!CreateSkeletalMeshes(SkeletalOutputs, InPackageParams))
+		return false;
+
+	if (!CreateAnimSequences(AnimSequenceOutputs, InPackageParams))
+		return false;
+
+	return true;
+}
+
 bool
 UHoudiniGeoImporter::CreateStaticMeshes(
 	const TArray<UHoudiniOutput*>& InOutputs,
