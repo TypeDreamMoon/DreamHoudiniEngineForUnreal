@@ -5430,7 +5430,7 @@ FUnrealMeshTranslator::CreateFaceMaterialArray(
 	UMaterialInterface* MaterialInterface = nullptr;
 	if (Materials.Num() > 0)
 	{
-		H_SCOPED_FUNCTION_STATIC_LABEL("Grather Materials");
+		H_SCOPED_FUNCTION_STATIC_LABEL("Gather Materials");
 
 		// We have materials.
 		for (int32 MaterialIdx = 0; MaterialIdx < Materials.Num(); MaterialIdx++)
