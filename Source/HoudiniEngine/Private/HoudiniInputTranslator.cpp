@@ -1084,7 +1084,7 @@ FHoudiniInputTranslator::UploadInputData(UHoudiniInput* InInput, const FTransfor
 		for (UHoudiniInputObject* ChangedInputObject : ChangedInputObjects)
 		{
 			// Upload the current input object to Houdini
-			if (!UploadHoudiniInputObject(InInput, ChangedInputObject, InActorTransform, CreatedNodeIds, Handles))
+			if (!UploadHoudiniInputObject(InInput, ChangedInputObject, InActorTransform, CreatedNodeIds, Handles, ChangedInputObject->CanDeleteHoudiniNodes()))
 				bSuccess = false;
 		}
 	}
@@ -1414,7 +1414,6 @@ FHoudiniInputTranslator::UploadHoudiniInputObject(
 				ObjBaseName,
 				InputSKC,
 				InputSettings,
-				InActorTransform,
 				bInputNodesCanBeDeleted);
 
 			if (bSuccess)
@@ -1449,7 +1448,6 @@ FHoudiniInputTranslator::UploadHoudiniInputObject(
 				ObjBaseName,
 				InputGeometryCollection,
 				InputSettings,
-				InActorTransform,
 				bInputNodesCanBeDeleted);
 
 			if (bSuccess)
@@ -1485,7 +1483,6 @@ FHoudiniInputTranslator::UploadHoudiniInputObject(
 				ObjBaseName,
 				InputSMC,
 				InputSettings,
-				InActorTransform,
 				bInputNodesCanBeDeleted);
 
 			if (bSuccess)
@@ -1724,7 +1721,6 @@ FHoudiniInputTranslator::UploadHoudiniInputObject(
 				ObjBaseName,
 				InputSMC,
 				InputSettings,
-				InActorTransform,
 				bInputNodesCanBeDeleted);
 
 			if (bSuccess)
@@ -2281,7 +2277,7 @@ FHoudiniInputTranslator::HapiCreateInputNodeForStaticMesh(
 	{	
 		bSuccess = FUnrealMeshTranslator::HapiCreateInputNodeForStaticMesh(
 			SM,
-			CreatedNodeId, 
+			CreatedNodeId,
 			SMName,
 			SMInputNodeHandle,
 			nullptr,
@@ -2291,7 +2287,8 @@ FHoudiniInputTranslator::HapiCreateInputNodeForStaticMesh(
 			true,
 			bInputNodesCanBeDeleted,
 			InInputSettings.bPreferNaniteFallbackMesh,
-			InInputSettings.bExportMaterialParameters);
+			InInputSettings.bExportMaterialParameters,
+			false);
 	}
 
 	if (bUseRefCountedInputSystem)
@@ -2301,7 +2298,7 @@ FHoudiniInputTranslator::HapiCreateInputNodeForStaticMesh(
 		FUnrealObjectInputOptions Options;
 		static constexpr bool bIsLeaf = false;
 		FUnrealObjectInputIdentifier GeoInputRefNodeId(InObject, Options, bIsLeaf);
-		FUnrealObjectInputUtils::CreateOrUpdateReferenceInputMergeNode(GeoInputRefNodeId, { SMInputNodeHandle }, InObject->InputNodeHandle);
+		FUnrealObjectInputUtils::CreateOrUpdateReferenceInputMergeNode(GeoInputRefNodeId, { SMInputNodeHandle }, InObject->InputNodeHandle, true, bInputNodesCanBeDeleted);
 	}
 	else
 	{
@@ -2389,7 +2386,7 @@ FHoudiniInputTranslator::HapiCreateInputNodeForReference(
 		FUnrealObjectInputOptions Options;
 		static constexpr bool bIsLeaf = false;
 		FUnrealObjectInputIdentifier GeoInputRefNodeId(InObject, Options, bIsLeaf);
-		FUnrealObjectInputUtils::CreateOrUpdateReferenceInputMergeNode(GeoInputRefNodeId, { InputNodeHandle }, InObject->InputNodeHandle);
+		FUnrealObjectInputUtils::CreateOrUpdateReferenceInputMergeNode(GeoInputRefNodeId, { InputNodeHandle }, InObject->InputNodeHandle, true, bInputNodesCanBeDeleted);
 	}
 	else
 	{
@@ -2500,7 +2497,7 @@ FHoudiniInputTranslator::HapiCreateInputNodeForAnimation(
 		FUnrealObjectInputOptions Options;
 		static constexpr bool bIsLeaf = false;
 		FUnrealObjectInputIdentifier GeoInputRefNodeId(InObject, Options, bIsLeaf);
-		FUnrealObjectInputUtils::CreateOrUpdateReferenceInputMergeNode(GeoInputRefNodeId, { AnimInputNodeHandle }, InObject->InputNodeHandle);
+		FUnrealObjectInputUtils::CreateOrUpdateReferenceInputMergeNode(GeoInputRefNodeId, { AnimInputNodeHandle }, InObject->InputNodeHandle, true, bInputNodesCanBeDeleted);
 	}
 	else
 	{
@@ -2607,7 +2604,7 @@ FHoudiniInputTranslator::HapiCreateInputNodeForSkeletalMesh(
 		FUnrealObjectInputOptions Options;
 		static constexpr bool bIsLeaf = false;
 		FUnrealObjectInputIdentifier GeoInputRefNodeId(InObject, Options, bIsLeaf);
-		FUnrealObjectInputUtils::CreateOrUpdateReferenceInputMergeNode(GeoInputRefNodeId, { SKMInputNodeHandle }, InObject->InputNodeHandle);
+		FUnrealObjectInputUtils::CreateOrUpdateReferenceInputMergeNode(GeoInputRefNodeId, { SKMInputNodeHandle }, InObject->InputNodeHandle, true, bInputNodesCanBeDeleted);
 	}
 	else
 	{
@@ -2631,7 +2628,6 @@ FHoudiniInputTranslator::HapiCreateInputNodeForSkeletalMeshComponent(
 	const FString& InObjNodeName,
 	UHoudiniInputSkeletalMeshComponent* InObject,
 	const FHoudiniInputObjectSettings& InInputSettings,
-	const FTransform& InActorTransform,
 	const bool& bInputNodesCanBeDeleted)
 {
 	if (!IsValid(InObject))
@@ -2891,7 +2887,7 @@ FHoudiniInputTranslator::HapiCreateInputNodeForGeometryCollection(
 		FUnrealObjectInputOptions Options;
 		static constexpr bool bIsLeaf = false;
 		FUnrealObjectInputIdentifier GeoInputRefNodeId(InObject, Options, bIsLeaf);
-		FUnrealObjectInputUtils::CreateOrUpdateReferenceInputMergeNode(GeoInputRefNodeId, { GCInputNodeHandle }, InObject->InputNodeHandle);
+		FUnrealObjectInputUtils::CreateOrUpdateReferenceInputMergeNode(GeoInputRefNodeId, { GCInputNodeHandle }, InObject->InputNodeHandle, true, bInputNodesCanBeDeleted);
 	}
 	else
 	{
@@ -2929,7 +2925,6 @@ FHoudiniInputTranslator::HapiCreateInputNodeForGeometryCollectionComponent(
 	const FString& InObjNodeName,
 	UHoudiniInputGeometryCollectionComponent* InObject,
 	const FHoudiniInputObjectSettings& InInputSettings,
-	const FTransform& InActorTransform,
 	const bool& bInputNodesCanBeDeleted)
 {
 	if (!IsValid(InObject))
@@ -3072,7 +3067,6 @@ FHoudiniInputTranslator::HapiCreateInputNodeForStaticMeshComponent(
 	const FString& InObjNodeName, 
 	UHoudiniInputMeshComponent* InObject,
 	const FHoudiniInputObjectSettings& InInputSettings,
-	const FTransform& InActorTransform,
 	const bool& bInputNodesCanBeDeleted)
 {
 	if (!IsValid(InObject))
@@ -3280,7 +3274,6 @@ FHoudiniInputTranslator::HapiCreateInputNodeForSplineMeshComponents(
 	const FString& InObjNodeName,
 	UHoudiniInputActor* InParentActorObject,
 	const FHoudiniInputObjectSettings& InInputSettings,
-	const FTransform& InActorTransform,
 	const bool& bInputNodesCanBeDeleted)
 {
 	if (!IsValid(InParentActorObject))
@@ -3364,7 +3357,8 @@ FHoudiniInputTranslator::HapiCreateInputNodeForSplineMeshComponents(
 		true, 
 		bInputNodesCanBeDeleted, 
 		InInputSettings.bPreferNaniteFallbackMesh,
-		InInputSettings.bExportMaterialParameters);
+		InInputSettings.bExportMaterialParameters,
+		false);
 
 	// Create/update the node in the input manager
 	if (bUseRefCountedInputSystem)
@@ -3629,7 +3623,8 @@ FHoudiniInputTranslator::HapiCreateInputNodeForHoudiniAssetComponent(
 				InObject->GetTransform(),
 				InInputSettings.bImportAsReferenceRotScaleEnabled,
 				bUseRefCountedInputSystem,
-				InputNodeHandle)) // do not delete previous node if it was HAC
+				InputNodeHandle,
+				InObject->CanDeleteHoudiniNodes())) // do not delete previous node if it was HAC
 			return false;
 
 		InObject->SetInputNodeId(InputNodeId);
@@ -3762,7 +3757,6 @@ FHoudiniInputTranslator::HapiCreateInputNodesForActorComponents(
 				InInput->GetNodeBaseName(),
 				InInputActorObject,
 				InputSettings,
-				InActorTransform,
 				bInputNodesCanBeDeleted))
 		{
 			OutCreatedNodeIds.Add(InInputActorObject->SplinesMeshObjectNodeId);
@@ -3862,7 +3856,7 @@ FHoudiniInputTranslator::HapiCreateInputNodeForActor(
 		// Make a reference node for the actor
 		const FUnrealObjectInputOptions Options = FUnrealObjectInputOptions::MakeOptionsForGenericActor(InputSettings);
 		const FUnrealObjectInputIdentifier ActorInputNodeId(Actor, Options, false);
-		FUnrealObjectInputUtils::CreateOrUpdateReferenceInputMergeNode(ActorInputNodeId, Handles, InObject->InputNodeHandle);
+		FUnrealObjectInputUtils::CreateOrUpdateReferenceInputMergeNode(ActorInputNodeId, Handles, InObject->InputNodeHandle, true, bInputNodesCanBeDeleted);
 		if (!HapiSetGeoObjectTransform(InObject->GetInputObjectNodeId(), InObject->GetHoudiniObjectTransform()))
 			return false;
 
@@ -3949,7 +3943,7 @@ FHoudiniInputTranslator::HapiCreateInputNodeForBP(
 			FUnrealObjectInputOptions Options;
 			static constexpr bool bIsLeaf = false;
 			FUnrealObjectInputIdentifier GeoInputRefNodeId(InObject, Options, bIsLeaf);
-			FUnrealObjectInputUtils::CreateOrUpdateReferenceInputMergeNode(GeoInputRefNodeId, ComponentHandles, InObject->InputNodeHandle);
+			FUnrealObjectInputUtils::CreateOrUpdateReferenceInputMergeNode(GeoInputRefNodeId, ComponentHandles, InObject->InputNodeHandle, true, bInputNodesCanBeDeleted);
 
 			// Set the transform on the InputObject's geo object node
 			if (!HapiSetGeoObjectTransform(InObject->GetInputObjectNodeId(), InObject->GetHoudiniObjectTransform()))
@@ -4092,13 +4086,13 @@ FHoudiniInputTranslator::HapiCreateInputNodeForLevelInstance(
 				}
 
 				// Create/Update the level instance' merge / reference node
-				FUnrealObjectInputUtils::CreateOrUpdateReferenceInputMergeNode(LevelInstanceId, Handles, InputNodeHandle);
+				FUnrealObjectInputUtils::CreateOrUpdateReferenceInputMergeNode(LevelInstanceId, Handles, InputNodeHandle, true, bInputNodesCanBeDeleted);
 			}
 
 			// Make a reference node for the actor
 			const FUnrealObjectInputIdentifier ActorInputNodeId(LevelInstance, LevelInstanceNodeOptions, false);
 			// Create/update the input-specific merge node for this level instance, on which we can apply the actor transform
-			FUnrealObjectInputUtils::CreateOrUpdateReferenceInputMergeNode(ActorInputNodeId, { InputNodeHandle }, InObject->InputNodeHandle);
+			FUnrealObjectInputUtils::CreateOrUpdateReferenceInputMergeNode(ActorInputNodeId, { InputNodeHandle }, InObject->InputNodeHandle, true, bInputNodesCanBeDeleted);
 
 			OutCreatedNodeIds.Add(InObject->GetInputObjectNodeId());
 			OutHandles.Add(InObject->InputNodeHandle);
@@ -4199,11 +4193,11 @@ FHoudiniInputTranslator::HapiCreateInputNodeForPackedLevelActor(
 			// Make a reference node for the BP asset
 			const FUnrealObjectInputOptions Options = FUnrealObjectInputOptions::MakeOptionsForPackedLevelActor(InInputSettings);
 			const FUnrealObjectInputIdentifier BPAssetNodeId(InputBP->GetBlueprint(), Options, false);
-			FUnrealObjectInputUtils::CreateOrUpdateReferenceInputMergeNode(BPAssetNodeId, Handles, InputBP->InputNodeHandle);
+			FUnrealObjectInputUtils::CreateOrUpdateReferenceInputMergeNode(BPAssetNodeId, Handles, InputBP->InputNodeHandle, true, bInputNodesCanBeDeleted);
 		
 			// Make a reference node for the actor
 			const FUnrealObjectInputIdentifier ActorInputNodeId(PackedLevelActor, Options, false);
-			FUnrealObjectInputUtils::CreateOrUpdateReferenceInputMergeNode(ActorInputNodeId, { InputBP->InputNodeHandle }, InObject->InputNodeHandle);
+			FUnrealObjectInputUtils::CreateOrUpdateReferenceInputMergeNode(ActorInputNodeId, { InputBP->InputNodeHandle }, InObject->InputNodeHandle, true, bInputNodesCanBeDeleted);
 			
 			if (!HapiSetGeoObjectTransform(InObject->GetInputObjectNodeId(), InObject->GetHoudiniObjectTransform()))
 				return false;
@@ -4291,7 +4285,7 @@ FHoudiniInputTranslator::HapiCreateInputNodeForLandscape(
 			InputSettings, &SelectedLandscapeComponents);
 		const FUnrealObjectInputIdentifier LandscapeInputNodeId(Landscape, Options, false);
 		Handles.Add(InputNodeHandle);
-		FUnrealObjectInputUtils::CreateOrUpdateReferenceInputMergeNode(LandscapeInputNodeId, Handles, InObject->InputNodeHandle);
+		FUnrealObjectInputUtils::CreateOrUpdateReferenceInputMergeNode(LandscapeInputNodeId, Handles, InObject->InputNodeHandle, true, bInputNodesCanBeDeleted);
 		if (!HapiSetGeoObjectTransform(InObject->GetInputObjectNodeId(), Transform))
 			return false;
 
@@ -5032,7 +5026,7 @@ FHoudiniInputTranslator::HapiCreateInputNodeForDataTable(
 		FUnrealObjectInputOptions Options;
 		static constexpr bool bIsLeaf = false;
 		FUnrealObjectInputIdentifier GeoInputRefNodeId(InInputObject, Options, bIsLeaf);
-		FUnrealObjectInputUtils::CreateOrUpdateReferenceInputMergeNode(GeoInputRefNodeId, { DTInputNodeHandle }, InInputObject->InputNodeHandle);
+		FUnrealObjectInputUtils::CreateOrUpdateReferenceInputMergeNode(GeoInputRefNodeId, { DTInputNodeHandle }, InInputObject->InputNodeHandle, true, bInputNodesCanBeDeleted);
 	}
 	else
 	{
