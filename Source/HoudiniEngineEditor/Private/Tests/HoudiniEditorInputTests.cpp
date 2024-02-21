@@ -37,7 +37,6 @@
 
 FString FHoudiniEditorInputTests::EquivalenceTestMapName = TEXT("Inputs");
 FString FHoudiniEditorInputTests::TestHDAPath = TEXT("/Game/TestHDAs/Inputs/");
-
 /*
 IMPLEMENT_SIMPLE_HOUDINI_AUTOMATION_TEST(HoudiniEditorInputTest_Mesh_Input, "Houdini.Editor.Inputs.Mesh_Input", EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
 
@@ -134,7 +133,7 @@ bool HoudiniEditorInputTest_Heightfield_Input::RunTest(const FString & Parameter
 				}
 				
 				InInputAssetWrapper->GetHoudiniAssetActor()->SetActorLabel(InputActorName);
-
+			
 				// Sets the input to the curve
 				const TSubclassOf<UHoudiniPublicAPIInput> APIInputClass = UHoudiniPublicAPIWorldInput::StaticClass();
 
