@@ -283,39 +283,33 @@ FHoudiniEngineBakedActor::FHoudiniEngineBakedActor(
 bool
 FHoudiniEngineBakeUtils::BakeHoudiniAssetComponent(
 	UHoudiniAssetComponent* InHACToBake,
-	bool bInReplacePreviousBake,
+	FHoudiniBakeSettings& BakeSettings,
 	EHoudiniEngineBakeOption InBakeOption,
-	bool bInRemoveHACOutputOnSuccess,
-	bool bInRecenterBakedActors)
+	bool bInRemoveHACOutputOnSuccess)
 {
 	if (!IsValid(InHACToBake))
 		return false;
 
 	// Handle proxies: if the output has any current proxies, first refine them
 	bool bHACNeedsToReCook;
-	if (!CheckForAndRefineHoudiniProxyMesh(InHACToBake, bInReplacePreviousBake, InBakeOption, bInRemoveHACOutputOnSuccess, bInRecenterBakedActors, bHACNeedsToReCook))
+	if (!CheckForAndRefineHoudiniProxyMesh(InHACToBake, BakeSettings.bReplaceActors, InBakeOption, bInRemoveHACOutputOnSuccess, BakeSettings.bRecenterBakedActors, bHACNeedsToReCook))
 	{
 		// Either the component is invalid, or needs a recook to refine a proxy mesh
 		return false;
 	}
-
-	FHoudiniBakeSettings BakeOptions;
-	BakeOptions.bReplaceActors = bInReplacePreviousBake;
-	BakeOptions.bReplaceAssets = bInReplacePreviousBake;
-	BakeOptions.bRecenterBakedActors =  bInRecenterBakedActors;
 
 	bool bSuccess = false;
 	switch (InBakeOption)
 	{
 	case EHoudiniEngineBakeOption::ToActor:
 	{
-		bSuccess = FHoudiniEngineBakeUtils::BakeHDAToActors(InHACToBake, BakeOptions);
+		bSuccess = FHoudiniEngineBakeUtils::BakeHDAToActors(InHACToBake, BakeSettings);
 	}
 	break;
 
 	case EHoudiniEngineBakeOption::ToBlueprint:
 	{
-		bSuccess = FHoudiniEngineBakeUtils::BakeBlueprints(InHACToBake, BakeOptions);
+		bSuccess = FHoudiniEngineBakeUtils::BakeBlueprints(InHACToBake, BakeSettings);
 	}
 	break;
 	}
@@ -1444,8 +1438,16 @@ FHoudiniEngineBakeUtils::BakeInstancerOutputToActors_ISMC(
 	    FName BakeActorName;
 	    AActor* FoundActor = nullptr;
 	    bool bHasBakeActorName = false;
-	    if (!FindUnrealBakeActor(InOutputObject, BakedOutputObject, InBakedActors, DesiredLevel, *InstancerName, BakeSettings, InFallbackActor, FoundActor, bHasBakeActorName, BakeActorName))
-		    return false;
+		FName DefaultActorName = *InstancerName;
+		if (BakeSettings.ActorBakeOption == EHoudiniEngineActorBakeOption::OneActorPerHDA)
+		{
+			FHoudiniAttributeResolver OutResolver;
+			TMap<FString, FString> Tokens = InOutputObject.CachedTokens;
+			InstancerPackageParams.UpdateTokensFromParams(HoudiniAssetComponent->GetWorld(), HoudiniAssetComponent, Tokens);
+			OutResolver.SetTokensFromStringMap(Tokens);
+			DefaultActorName = FName(OutResolver.ResolveString(BakeSettings.DefaultBakeName));
+		}
+	    FindUnrealBakeActor(InOutputObject, BakedOutputObject, InBakedActors, DesiredLevel, DefaultActorName, BakeSettings, InFallbackActor, FoundActor, bHasBakeActorName, BakeActorName);
 
 	    /*
 	    // TODO: Get the bake name!
@@ -1472,7 +1474,7 @@ FHoudiniEngineBakeUtils::BakeInstancerOutputToActors_ISMC(
 		    // (via unreal_bake_actor and unreal_split_attr)
 		    // Get the StaticMesh ActorFactory
 		    TSubclassOf<AActor> BakeActorClass = nullptr;
-		    UActorFactory* ActorFactory = GetActorFactory(NAME_None, BakeActorClass, UActorFactoryStaticMesh::StaticClass(), BakedStaticMesh);
+		    UActorFactory* ActorFactory = GetActorFactory(NAME_None, BakeSettings, BakeActorClass, UActorFactoryStaticMesh::StaticClass(), BakedStaticMesh);
 		    if (!ActorFactory)
 			    return false;
 
@@ -1484,12 +1486,11 @@ FHoudiniEngineBakeUtils::BakeInstancerOutputToActors_ISMC(
 
 			    FName BakeActorNameWithIndex = FName(BakeActorName.ToString() + "_instance_" + FString::FromInt(InstanceIdx), InstanceIdx);
 			    FoundActor = nullptr;
-			    if (!FindUnrealBakeActor(InOutputObject, BakedOutputObject, InBakedActors, DesiredLevel, *InstancerName, BakeSettings, InFallbackActor, FoundActor, bHasBakeActorName, BakeActorName))
-				    return false;
+			    FindUnrealBakeActor(InOutputObject, BakedOutputObject, InBakedActors, DesiredLevel, *InstancerName, BakeSettings, InFallbackActor, FoundActor, bHasBakeActorName, BakeActorName);
 
 			    if (!FoundActor)
 			    {
-				    FoundActor = SpawnBakeActor(ActorFactory, BakedStaticMesh, DesiredLevel, InstanceTransform, HoudiniAssetComponent, BakeActorClass);
+				    FoundActor = SpawnBakeActor(ActorFactory, BakedStaticMesh, DesiredLevel, BakeSettings, InstanceTransform, HoudiniAssetComponent, BakeActorClass);
 				    if (!IsValid(FoundActor))
 					    continue;
 			    }
@@ -1978,8 +1979,16 @@ FHoudiniEngineBakeUtils::BakeInstancerOutputToActors_SMC(
 	    FName BakeActorName;
 	    AActor* FoundActor = nullptr;
 	    bool bHasBakeActorName = false;
-	    if (!FindUnrealBakeActor(InOutputObject, BakedOutputObject, InBakedActors, DesiredLevel, *InstancerName, BakeSettings, InFallbackActor, FoundActor, bHasBakeActorName, BakeActorName))
-		    return false;
+		FName DefaultBakeActorName = *InstancerName;
+		if (BakeSettings.ActorBakeOption == EHoudiniEngineActorBakeOption::OneActorPerHDA)
+		{
+			FHoudiniAttributeResolver OutResolver;
+			TMap<FString, FString> Tokens = InOutputObject.CachedTokens;
+			InstancerPackageParams.UpdateTokensFromParams(HoudiniAssetComponent->GetWorld(), HoudiniAssetComponent, Tokens);
+			OutResolver.SetTokensFromStringMap(Tokens);
+			DefaultBakeActorName = FName(OutResolver.ResolveString(BakeSettings.DefaultBakeName));
+		}
+	    FindUnrealBakeActor(InOutputObject, BakedOutputObject, InBakedActors, DesiredLevel, DefaultBakeActorName, BakeSettings, InFallbackActor, FoundActor, bHasBakeActorName, BakeActorName);
 
 	    UStaticMeshComponent* StaticMeshComponent = nullptr;
 	    // Create an actor if we didn't find one
@@ -1988,13 +1997,13 @@ FHoudiniEngineBakeUtils::BakeInstancerOutputToActors_SMC(
 	    {
 		    // Get the actor factory for the unreal_bake_actor_class attribute. If not set, use an empty actor.
 		    TSubclassOf<AActor> BakeActorClass = nullptr;
-		    UActorFactory* ActorFactory = GetActorFactory(InOutputObject, BakeActorClass, UActorFactoryEmptyActor::StaticClass(), BakedStaticMesh);
+		    UActorFactory* ActorFactory = GetActorFactory(InOutputObject, BakeSettings, BakeActorClass, UActorFactoryEmptyActor::StaticClass(), BakedStaticMesh);
 		    if (!ActorFactory)
 		    {
 			    return false;
 		    }
 
-		    FoundActor = SpawnBakeActor(ActorFactory, BakedStaticMesh, DesiredLevel, InSMC->GetComponentTransform(), HoudiniAssetComponent, BakeActorClass);
+		    FoundActor = SpawnBakeActor(ActorFactory, BakedStaticMesh, DesiredLevel, BakeSettings, InSMC->GetComponentTransform(), HoudiniAssetComponent, BakeActorClass);
 		    if (!IsValid(FoundActor))
 			    return false;
 
@@ -2210,49 +2219,53 @@ FHoudiniEngineBakeUtils::BakeInstancerOutputToActors_IAC(
 	    // Try to find the unreal_bake_actor, if specified. If we found the actor, we will attach the instanced actors
 	    // to it. If we did not find an actor, but unreal_bake_actor was set, then we create a new actor with that name
 	    // and parent the instanced actors to it. Otherwise, we don't attach the instanced actors to anything.
-	    FName DesiredParentBakeActorName;
+	    FName ParentActorName;
 	    FName ParentBakeActorName;
-	    AActor* ParentToActor = nullptr;
+	    AActor* ParentActor = nullptr;
 	    bool bHasBakeActorName = false;
 	    constexpr AActor* FallbackActor = nullptr;
-	    const FName DefaultBakeActorName = NAME_None;
-	    if (!FindUnrealBakeActor(InOutputObject, BakedOutputObject, InBakedActors, DesiredLevel, DefaultBakeActorName, BakeSettings, FallbackActor, ParentToActor, bHasBakeActorName, DesiredParentBakeActorName))
-	    {
-		    HOUDINI_LOG_ERROR(TEXT("Finding / processing unreal_bake_actor unexpectedly failed during bake."));
-		    return false;
-	    }
+	    FName DefaultBakeActorName = NAME_None;
+		if (BakeSettings.ActorBakeOption == EHoudiniEngineActorBakeOption::OneActorPerHDA)
+		{
+			FHoudiniAttributeResolver OutResolver;
+			TMap<FString, FString> Tokens = InOutputObject.CachedTokens;
+			PackageParams.UpdateTokensFromParams(HoudiniAssetComponent->GetWorld(), HoudiniAssetComponent, Tokens);
+			OutResolver.SetTokensFromStringMap(Tokens);
+			DefaultBakeActorName = FName(OutResolver.ResolveString(BakeSettings.DefaultBakeName));
+		}
+	    FindUnrealBakeActor(InOutputObject, BakedOutputObject, InBakedActors, DesiredLevel, DefaultBakeActorName, BakeSettings, FallbackActor, ParentActor, bHasBakeActorName, ParentActorName);
 
 	    OutActors.Reset();
 
-	    if (!ParentToActor && bHasBakeActorName)
+	    if (!ParentActor && bHasBakeActorName)
 	    {
 		    // Get the actor factory for the unreal_bake_actor_class attribute. If not set, use an empty actor.
 		    TSubclassOf<AActor> BakeActorClass = nullptr;
-		    UActorFactory* const ActorFactory = GetActorFactory(InOutputObject, BakeActorClass, UActorFactoryEmptyActor::StaticClass());
+		    UActorFactory* const ActorFactory = GetActorFactory(InOutputObject, BakeSettings, BakeActorClass, UActorFactoryEmptyActor::StaticClass());
 		    if (!ActorFactory)
 			    return false;
 		    
 		    constexpr UObject* AssetToSpawn = nullptr;
 		    constexpr EObjectFlags ObjectFlags = RF_Transactional;
-		    ParentBakeActorName = *MakeUniqueObjectNameIfNeeded(DesiredLevel, AActor::StaticClass(), DesiredParentBakeActorName.ToString());
+		    ParentBakeActorName = *MakeUniqueObjectNameIfNeeded(DesiredLevel, AActor::StaticClass(), ParentActorName.ToString());
 		    
 		    FActorSpawnParameters SpawnParam;
 		    SpawnParam.ObjectFlags = ObjectFlags;
 		    SpawnParam.Name = ParentBakeActorName;
-		    ParentToActor = SpawnBakeActor(ActorFactory, AssetToSpawn, DesiredLevel, InIAC->GetComponentTransform(), HoudiniAssetComponent, BakeActorClass, SpawnParam);
+			ParentActor = SpawnBakeActor(ActorFactory, AssetToSpawn, DesiredLevel, BakeSettings, InIAC->GetComponentTransform(), HoudiniAssetComponent, BakeActorClass, SpawnParam);
 
-		    if (!IsValid(ParentToActor))
+		    if (!IsValid(ParentActor))
 		    {
-			    ParentToActor = nullptr;
+				ParentActor = nullptr;
 		    }
 		    else
 		    {
-			    BakedObjectData.BakeStats.NotifyObjectsCreated(ParentToActor->GetClass()->GetName(), 1);
+			    BakedObjectData.BakeStats.NotifyObjectsCreated(ParentActor->GetClass()->GetName(), 1);
 			    
-			    ParentToActor->SetActorLabel(ParentBakeActorName.ToString());
+				ParentActor->SetActorLabel(ParentBakeActorName.ToString());
 			    OutActors.Emplace(FHoudiniEngineBakedActor(
-				    ParentToActor,
-				    DesiredParentBakeActorName,
+					ParentActor,
+					ParentActorName,
 				    WorldOutlinerFolderPath,
 				    InOutputIndex,
 				    InOutputObjectIdentifier,
@@ -2264,10 +2277,10 @@ FHoudiniEngineBakeUtils::BakeInstancerOutputToActors_IAC(
 		    }
 	    }
 
-	    if (ParentToActor)
+	    if (ParentActor)
 	    {
-		    BakedOutputObject.ActorBakeName = DesiredParentBakeActorName;
-		    BakedOutputObject.Actor = FSoftObjectPath(ParentToActor).ToString();
+		    BakedOutputObject.ActorBakeName = ParentActorName;
+		    BakedOutputObject.Actor = FSoftObjectPath(ParentActor).ToString();
 	    }
 	    
 	    // If we are baking in actor replacement mode, remove any previously baked instanced actors for this output
@@ -2341,8 +2354,8 @@ FHoudiniEngineBakeUtils::BakeInstancerOutputToActors_IAC(
 		    SetOutlinerFolderPath(NewActor, WorldOutlinerFolderPath);
 		    NewActor->SetActorTransform(CurrentTransform);
 
-		    if (ParentToActor)
-			    NewActor->AttachToActor(ParentToActor, FAttachmentTransformRules::KeepWorldTransform);
+		    if (ParentActor)
+			    NewActor->AttachToActor(ParentActor, FAttachmentTransformRules::KeepWorldTransform);
 
 		    BakedOutputObject.InstancedActors.Add(FSoftObjectPath(NewActor).ToString());
 		    
@@ -2560,8 +2573,7 @@ FHoudiniEngineBakeUtils::BakeInstancerOutputToActors_MSIC(
 	    AActor* FoundActor = nullptr;
 	    bool bHasBakeActorName = false;
 	    bool bSpawnedActor = false;
-	    if (!FindUnrealBakeActor(InOutputObject, BakedOutputObject, InBakedActors, DesiredLevel, *InstancerName, BakeSettings, InFallbackActor, FoundActor, bHasBakeActorName, BakeActorName))
-		    return false;
+	    FindUnrealBakeActor(InOutputObject, BakedOutputObject, InBakedActors, DesiredLevel, *InstancerName, BakeSettings, InFallbackActor, FoundActor, bHasBakeActorName, BakeActorName);
 
 	    if (!FoundActor)
 	    {
@@ -2904,7 +2916,7 @@ FHoudiniEngineBakeUtils::BakeStaticMeshOutputObjectToActor(
 
 		// Get the actor factory for the unreal_bake_actor_class attribute. If not set, use an empty actor.
 		TSubclassOf<AActor> BakeActorClass = nullptr;
-		UActorFactory* const Factory = GetActorFactory(InOutputObject, BakeActorClass, UActorFactoryEmptyActor::StaticClass(), BakedSM);
+		UActorFactory* Factory = GetActorFactory(InOutputObject, BakeSettings, BakeActorClass, UActorFactoryEmptyActor::StaticClass(), BakedSM);
 
 		// If we could not find a factory, we have to skip this output object
 		if (!Factory)
@@ -2918,27 +2930,34 @@ FHoudiniEngineBakeUtils::BakeStaticMeshOutputObjectToActor(
 		FName BakeActorName;
 		AActor* FoundActor = nullptr;
 		bool bHasBakeActorName = false;
-		if (!FindUnrealBakeActor(
+		FName DefaultActorName = FName(*(PackageParams.ObjectName));
+		if (BakeSettings.ActorBakeOption == EHoudiniEngineActorBakeOption::OneActorPerHDA)
+		{
+			FHoudiniAttributeResolver OutResolver;
+			TMap<FString, FString> Tokens = InOutputObject.CachedTokens;
+			PackageParams.UpdateTokensFromParams(InHoudiniAssetComponent->GetWorld(), InHoudiniAssetComponent, Tokens);
+			OutResolver.SetTokensFromStringMap(Tokens);
+			DefaultActorName = FName(OutResolver.ResolveString(BakeSettings.DefaultBakeName));
+		}
+
+		FindUnrealBakeActor(
 			InOutputObject,
 			BakedOutputObject,
 			InAllBakedActors,
 			DesiredLevel,
-			*(PackageParams.ObjectName),
+			DefaultActorName,
 			BakeSettings,
 			InFallbackActor,
 			FoundActor,
 			bHasBakeActorName,
-			BakeActorName))
-		{
-			return false;
-		}
+			BakeActorName);
 
 		bool bCreatedNewActor = false;
 		UStaticMeshComponent* SMC = nullptr;
 		if (!FoundActor)
 		{
 			// Spawn the new actor
-			FoundActor = SpawnBakeActor(Factory, BakedSM, DesiredLevel, InSMC->GetComponentTransform(), InHoudiniAssetComponent, BakeActorClass);
+			FoundActor = SpawnBakeActor(Factory, BakedSM, DesiredLevel, BakeSettings, InSMC->GetComponentTransform(), InHoudiniAssetComponent, BakeActorClass);
 			if (!IsValid(FoundActor))
 				return false;
 
@@ -3174,7 +3193,7 @@ FHoudiniEngineBakeUtils::BakeSkeletalMeshOutputObjectToActor(
 
 		// Get the actor factory for the unreal_bake_actor_class attribute. If not set, use an empty actor.
 		TSubclassOf<AActor> BakeActorClass = nullptr;
-		UActorFactory* const Factory = GetActorFactory(InOutputObject, BakeActorClass, UActorFactoryEmptyActor::StaticClass(), BakedSK);
+		UActorFactory* const Factory = GetActorFactory(InOutputObject, BakeSettings, BakeActorClass, UActorFactoryEmptyActor::StaticClass(), BakedSK);
 
 		// If we could not find a factory, we have to skip this output object
 		if (!Factory)
@@ -3188,7 +3207,7 @@ FHoudiniEngineBakeUtils::BakeSkeletalMeshOutputObjectToActor(
 		FName BakeActorName;
 		AActor* FoundActor = nullptr;
 		bool bHasBakeActorName = false;
-		if (!FindUnrealBakeActor(
+		FindUnrealBakeActor(
 			InOutputObject,
 			BakedOutputObject,
 			InAllBakedActors,
@@ -3198,15 +3217,14 @@ FHoudiniEngineBakeUtils::BakeSkeletalMeshOutputObjectToActor(
 			InFallbackActor,
 			FoundActor,
 			bHasBakeActorName,
-			BakeActorName))
-			return false;
+			BakeActorName);
 
 		bool bCreatedNewActor = false;
 		USkeletalMeshComponent* SKC = nullptr;
 		if (!FoundActor)
 		{
 			// Spawn the new actor
-			FoundActor = SpawnBakeActor(Factory, BakedSK, DesiredLevel, InSKC->GetComponentTransform(), InHoudiniAssetComponent, BakeActorClass);
+			FoundActor = SpawnBakeActor(Factory, BakedSK, DesiredLevel, BakeSettings, InSKC->GetComponentTransform(), InHoudiniAssetComponent, BakeActorClass);
 			if (!IsValid(FoundActor))
 				return false;
 
@@ -4291,8 +4309,7 @@ bool FHoudiniEngineBakeUtils::BakeGeometryCollectionOutputToActors(
 		FName BakeActorName;
 		AActor* FoundActor = nullptr;
 		bool bHasBakeActorName = false;
-		if (!FindUnrealBakeActor(OutputObject, BakedOutputObject, AllBakedActors, DesiredLevel, *(PackageParams.ObjectName), BakeSettings, InFallbackActor, FoundActor, bHasBakeActorName, BakeActorName))
-			return false;
+		FindUnrealBakeActor(OutputObject, BakedOutputObject, AllBakedActors, DesiredLevel, *(PackageParams.ObjectName), BakeSettings, InFallbackActor, FoundActor, bHasBakeActorName, BakeActorName);
 
 		AGeometryCollectionActor* NewGCActor = nullptr;
 		UGeometryCollectionComponent* NewGCC = nullptr;
@@ -5757,6 +5774,7 @@ FHoudiniEngineBakeUtils::BakeCurve(
 	USplineComponent* InSplineComponent,
 	ULevel* InLevel,
 	const FHoudiniPackageParams &PackageParams,
+	const FHoudiniBakeSettings& BakeSettings,
 	const FName& InActorName,
 	AActor*& OutActor,
 	USplineComponent*& OutSplineComponent,
@@ -5775,12 +5793,12 @@ FHoudiniEngineBakeUtils::BakeCurve(
 		}
 		else
 		{
-			Factory = GetActorFactory(NAME_None, BakeActorClass, UActorFactoryEmptyActor::StaticClass());
+			Factory = GetActorFactory(NAME_None, BakeSettings, BakeActorClass, UActorFactoryEmptyActor::StaticClass());
 		}
 		if (!Factory)
 			return false;
 
-		OutActor = SpawnBakeActor(Factory, nullptr, InLevel, InSplineComponent->GetComponentTransform(), InHoudiniAssetComponent, BakeActorClass);
+		OutActor = SpawnBakeActor(Factory, nullptr, InLevel, BakeSettings, InSplineComponent->GetComponentTransform(), InHoudiniAssetComponent, BakeActorClass);
 		if (IsValid(OutActor))
 			BakedObjectData.BakeStats.NotifyObjectsCreated(OutActor->GetClass()->GetName(), 1);
 	}
@@ -5883,8 +5901,7 @@ FHoudiniEngineBakeUtils::BakeCurve(
 	FName BakeActorName;
 	AActor* FoundActor = nullptr;
 	bool bHasBakeActorName = false;
-	if (!FindUnrealBakeActor(InOutputObject, InBakedOutputObject, InBakedActors, DesiredLevel, *(PackageParams.ObjectName), BakeSettings, InFallbackActor, FoundActor, bHasBakeActorName, BakeActorName))
-		return false;
+	FindUnrealBakeActor(InOutputObject, InBakedOutputObject, InBakedActors, DesiredLevel, *(PackageParams.ObjectName), BakeSettings, InFallbackActor, FoundActor, bHasBakeActorName, BakeActorName);
 
 	// If we are baking in replace mode, remove the previous bake component
 	if (BakeSettings.bReplaceAssets && !InBakedOutputObject.BakedComponent.IsEmpty())
@@ -5898,7 +5915,7 @@ FHoudiniEngineBakeUtils::BakeCurve(
 	
 	USplineComponent* NewSplineComponent = nullptr;
 	const FName OutlinerFolderPath = GetOutlinerFolderPath(InResolver, *(PackageParams.HoudiniAssetActorName));
-	if (!BakeCurve(InHoudiniAssetComponent, SplineComponent, DesiredLevel, PackageParams, BakeActorName, FoundActor, NewSplineComponent, BakedObjectData, OutlinerFolderPath, FoundActor))
+	if (!BakeCurve(InHoudiniAssetComponent, SplineComponent, DesiredLevel, PackageParams, BakeSettings, BakeActorName, FoundActor, NewSplineComponent, BakedObjectData, OutlinerFolderPath, FoundActor))
 		return false;
 
 	InBakedOutputObject.Actor = FSoftObjectPath(FoundActor).ToString();
@@ -5936,6 +5953,7 @@ FHoudiniEngineBakeUtils::BakeInputHoudiniCurveToActor(
 	UHoudiniAssetComponent const* const InHoudiniAssetComponent,
 	UHoudiniSplineComponent * InHoudiniSplineComponent,
 	const FHoudiniPackageParams & PackageParams,
+	const FHoudiniBakeSettings& BakeSettings,
 	UWorld* WorldToSpawn,
 	const FTransform & SpawnTransform) 
 {
@@ -5949,7 +5967,7 @@ FHoudiniEngineBakeUtils::BakeInputHoudiniCurveToActor(
 	ULevel* DesiredLevel = GWorld->GetCurrentLevel();
 
 	TSubclassOf<AActor> BakeActorClass = nullptr;
-	UActorFactory* const Factory = GetActorFactory(NAME_None, BakeActorClass, UActorFactoryEmptyActor::StaticClass());
+	UActorFactory* const Factory = GetActorFactory(NAME_None, BakeSettings, BakeActorClass, UActorFactoryEmptyActor::StaticClass());
 	if (!Factory)
 		return nullptr;
 
@@ -5973,7 +5991,7 @@ FHoudiniEngineBakeUtils::BakeInputHoudiniCurveToActor(
 		}
 	}
 
-	AActor* NewActor = SpawnBakeActor(Factory, nullptr, DesiredLevel, InHoudiniSplineComponent->GetComponentTransform(), InHoudiniAssetComponent, BakeActorClass);
+	AActor* NewActor = SpawnBakeActor(Factory, nullptr, DesiredLevel, BakeSettings, InHoudiniSplineComponent->GetComponentTransform(), InHoudiniAssetComponent, BakeActorClass);
 
 	USplineComponent* BakedUnrealSplineComponent = NewObject<USplineComponent>(NewActor);
 	if (!BakedUnrealSplineComponent)
@@ -6008,6 +6026,7 @@ FHoudiniEngineBakeUtils::BakeInputHoudiniCurveToBlueprint(
 	UHoudiniAssetComponent const* const InHoudiniAssetComponent,
 	UHoudiniSplineComponent * InHoudiniSplineComponent,
 	const FHoudiniPackageParams & PackageParams,
+	const FHoudiniBakeSettings& BakeSettings,
 	UWorld* WorldToSpawn,
 	const FTransform & SpawnTransform) 
 {
@@ -6044,7 +6063,7 @@ FHoudiniEngineBakeUtils::BakeInputHoudiniCurveToBlueprint(
 	}
 
 	AActor * CreatedHoudiniSplineActor = FHoudiniEngineBakeUtils::BakeInputHoudiniCurveToActor(
-		InHoudiniAssetComponent, InHoudiniSplineComponent, PackageParams, WorldToSpawn, SpawnTransform);
+		InHoudiniAssetComponent, InHoudiniSplineComponent, PackageParams, BakeSettings, WorldToSpawn, SpawnTransform);
 
 	FHoudiniBakedObjectData BakedObjectData;
 
@@ -8179,7 +8198,7 @@ FHoudiniEngineBakeUtils::FindOrCreateDesiredLevelFromLevelPath(
 
 
 bool
-FHoudiniEngineBakeUtils::FindDesiredBakeActorFromBakeActorName(
+FHoudiniEngineBakeUtils::FindBakedActor(
 	const FString& InBakeActorName,
 	const TSubclassOf<AActor>& InBakeActorClass,
 	ULevel* InLevel,
@@ -8200,16 +8219,6 @@ FHoudiniEngineBakeUtils::FindDesiredBakeActorFromBakeActorName(
 	const FName BakeActorFName(InBakeActorName);
 	const TSubclassOf<AActor> ActorClass = IsValid(InBakeActorClass.Get()) ? InBakeActorClass.Get() : AActor::StaticClass();
 	AActor* FoundActor = Cast<AActor>(StaticFindObjectFast(ActorClass.Get(), InLevel, BakeActorFName));
-	// for (TActorIterator<AActor> Iter(World, AActor::StaticClass(), EActorIteratorFlags::AllActors); Iter; ++Iter)
-	// {
-	// 	AActor* const Actor = *Iter;
-	// 	if (Actor->GetFName() == BakeActorFName && Actor->GetLevel() == InLevel)
-	// 	{
-	// 		// Found the actor
-	// 		FoundActor = Actor;
-	// 		break;
-	// 	}
-	// }
 
 	// If we found an actor and it is pending kill, rename it and don't use it
 	if (FoundActor)
@@ -8241,7 +8250,7 @@ FHoudiniEngineBakeUtils::FindDesiredBakeActorFromBakeActorName(
 	return true;
 }
 
-bool FHoudiniEngineBakeUtils::FindUnrealBakeActor(
+void FHoudiniEngineBakeUtils::FindUnrealBakeActor(
 	const FHoudiniOutputObject& InOutputObject,
 	const FHoudiniBakedOutputObject& InBakedOutputObject,
 	const TArray<FHoudiniEngineBakedActor>& InAllBakedActors,
@@ -8262,9 +8271,22 @@ bool FHoudiniEngineBakeUtils::FindUnrealBakeActor(
 	OutBakeActorName = NAME_None;
 	OutFoundActor = nullptr;
 	bOutHasBakeActorName = InOutputObject.CachedAttributes.Contains(HAPI_UNREAL_ATTRIB_BAKE_ACTOR);
+
+	FString BakeActorNameStr;
+
 	if (bOutHasBakeActorName)
 	{
-		const FString& BakeActorNameStr = InOutputObject.CachedAttributes[HAPI_UNREAL_ATTRIB_BAKE_ACTOR];
+		BakeActorNameStr = InOutputObject.CachedAttributes[HAPI_UNREAL_ATTRIB_BAKE_ACTOR];
+	}
+
+	if (BakeSettings.ActorBakeOption == EHoudiniEngineActorBakeOption::OneActorPerHDA)
+	{
+		BakeActorNameStr = InDefaultActorName.ToString();
+		bOutHasBakeActorName = true;
+	}
+
+	if (bOutHasBakeActorName)
+	{
 		if (BakeActorNameStr.IsEmpty())
 		{
 			OutBakeActorName = NAME_None;
@@ -8275,7 +8297,7 @@ bool FHoudiniEngineBakeUtils::FindUnrealBakeActor(
 			OutBakeActorName = FName(BakeActorNameStr, NAME_NO_NUMBER_INTERNAL);
 			// We have a bake actor name, look for the actor
 			AActor* BakeNameActor = nullptr;
-			if (FindDesiredBakeActorFromBakeActorName(BakeActorNameStr, BakeActorClass, InLevel, BakeNameActor))
+			if (FindBakedActor(BakeActorNameStr, BakeActorClass, InLevel, BakeNameActor))
 			{
 				// Found an actor with that name, check that we "own" it (we created in during baking previously)
 				AActor* IncrementedBakedActor = nullptr;
@@ -8305,7 +8327,9 @@ bool FHoudiniEngineBakeUtils::FindUnrealBakeActor(
 
 	// If unreal_bake_actor is not set, or is blank, fallback to InDefaultActorName
 	if (!bOutHasBakeActorName || (OutBakeActorName.IsNone() || OutBakeActorName.ToString().TrimStartAndEnd().IsEmpty()))
+	{
 		OutBakeActorName = InDefaultActorName;
+	}
 
 	if (!OutFoundActor)
 	{
@@ -8319,7 +8343,7 @@ bool FHoudiniEngineBakeUtils::FindUnrealBakeActor(
 			const FString LevelPath = IsValid(InLevel) ? InLevel->GetPathName() : "";
 			if (PrevActorPath.IsValid() && (LevelPath.IsEmpty() || ActorPath.StartsWith(LevelPath)))
 			{
-				AActor* const PrevBakedActor = InBakedOutputObject.GetActorIfValid();
+				AActor* PrevBakedActor = InBakedOutputObject.GetActorIfValid();
 				if (IsValid(PrevBakedActor) && PrevBakedActor->IsA(BakeActorClass.Get()))
 					OutFoundActor = PrevBakedActor;
 			}
@@ -8332,8 +8356,6 @@ bool FHoudiniEngineBakeUtils::FindUnrealBakeActor(
 				OutFoundActor = InFallbackActor;
 		}
 	}
-
-	return true;
 }
 
 AActor*
@@ -8752,16 +8774,31 @@ FHoudiniEngineBakeUtils::GetBakeActorClassOverride(const FHoudiniOutputObject& I
 }
 
 UActorFactory*
-FHoudiniEngineBakeUtils::GetActorFactory(const FName& InActorClassName, TSubclassOf<AActor>& OutActorClass, const TSubclassOf<UActorFactory>& InFactoryClass, UObject* const InAsset)
+FHoudiniEngineBakeUtils::GetActorFactory(
+	const FName& InActorClassName, 
+	const FHoudiniBakeSettings& BakeSettings, 
+	TSubclassOf<AActor>& OutActorClass, 
+	const TSubclassOf<UActorFactory>& InFactoryClass, 
+	UObject* const InAsset)
 {
 	if (!GEditor)
 		return nullptr;
+
+	// If grouping components under one actor, choose an empty actor factory.
+	if (BakeSettings.ActorBakeOption == EHoudiniEngineActorBakeOption::OneActorPerHDA)
+	{
+		OutActorClass = GetBakeActorClassOverride(InActorClassName);
+
+		UActorFactory* ActorFactory = GEditor->FindActorFactoryByClass(UActorFactoryClass::StaticClass());
+		return ActorFactory;
+
+	}
 
 	// If InActorClassName is not blank, try to find an actor factory that spawns actors of this class.
 	OutActorClass = nullptr;
 	if (!InActorClassName.IsNone())
 	{
-		UClass* const ActorClass = GetBakeActorClassOverride(InActorClassName);
+		UClass* ActorClass = GetBakeActorClassOverride(InActorClassName);
 		if (IsValid(ActorClass))
 		{
 			OutActorClass = ActorClass;
@@ -8778,10 +8815,10 @@ FHoudiniEngineBakeUtils::GetActorFactory(const FName& InActorClassName, TSubclas
 
 	// If InActorClassName was blank, or we could not find a factory for it,
 	// Then if InFactoryClass was specified, try to find a factory of that class
-	UClass const* const ActorFactoryClass = InFactoryClass.Get();
+	UClass * ActorFactoryClass = InFactoryClass.Get();
 	if (IsValid(ActorFactoryClass) && ActorFactoryClass != UActorFactoryEmptyActor::StaticClass())
 	{
-		UActorFactory* const ActorFactory = GEditor->FindActorFactoryByClass(ActorFactoryClass);
+		UActorFactory* ActorFactory = GEditor->FindActorFactoryByClass(ActorFactoryClass);
 		if (IsValid(ActorFactory))
 			return ActorFactory;
 	}
@@ -8790,7 +8827,7 @@ FHoudiniEngineBakeUtils::GetActorFactory(const FName& InActorClassName, TSubclas
 	// a factory that spawns actors for InAsset
 	if (IsValid(InAsset))
 	{
-		UActorFactory* const ActorFactory = FActorFactoryAssetProxy::GetFactoryForAssetObject(InAsset);
+		UActorFactory* ActorFactory = FActorFactoryAssetProxy::GetFactoryForAssetObject(InAsset);
 		if (IsValid(ActorFactory))
 			return ActorFactory;
 	}
@@ -8798,7 +8835,7 @@ FHoudiniEngineBakeUtils::GetActorFactory(const FName& InActorClassName, TSubclas
 	if (IsValid(ActorFactoryClass))
 	{
 		// Return the empty actor factory if we had ignored it above
-		UActorFactory* const ActorFactory = GEditor->FindActorFactoryByClass(ActorFactoryClass);
+		UActorFactory* ActorFactory = GEditor->FindActorFactoryByClass(ActorFactoryClass);
 		if (IsValid(ActorFactory))
 			return ActorFactory;
 	}
@@ -8813,16 +8850,28 @@ FHoudiniEngineBakeUtils::GetActorFactory(const FName& InActorClassName, TSubclas
 }
 
 UActorFactory*
-FHoudiniEngineBakeUtils::GetActorFactory(const FHoudiniOutputObject& InOutputObject, TSubclassOf<AActor>& OutActorClass, const TSubclassOf<UActorFactory>& InFactoryClass, UObject* InAsset)
+FHoudiniEngineBakeUtils::GetActorFactory(
+	const FHoudiniOutputObject& InOutputObject, 
+	const FHoudiniBakeSettings& BakeSettings, 
+	TSubclassOf<AActor>& OutActorClass, 
+	const TSubclassOf<UActorFactory>& InFactoryClass, UObject* InAsset)
 {
 	// Find the unreal_bake_actor_class attribute in InOutputObject
 	const FName ActorClassName = InOutputObject.CachedAttributes.Contains(HAPI_UNREAL_ATTRIB_BAKE_ACTOR_CLASS) ?
 		FName(InOutputObject.CachedAttributes.FindChecked(HAPI_UNREAL_ATTRIB_BAKE_ACTOR_CLASS)) : NAME_None;
-	return GetActorFactory(ActorClassName, OutActorClass, InFactoryClass, InAsset);
+	return GetActorFactory(ActorClassName, BakeSettings, OutActorClass, InFactoryClass, InAsset);
 }
 
 AActor*
-FHoudiniEngineBakeUtils::SpawnBakeActor(UActorFactory* const InActorFactory, UObject* const InAsset, ULevel* const InLevel, const FTransform& InTransform, UHoudiniAssetComponent const* const InHAC, const TSubclassOf<AActor>& InActorClass, const FActorSpawnParameters& InSpawnParams)
+FHoudiniEngineBakeUtils::SpawnBakeActor(
+	UActorFactory* InActorFactory, 
+	UObject* InAsset, 
+	ULevel* InLevel,
+	const FHoudiniBakeSettings & BakeSettings,
+	const FTransform& InTransform, 
+	const UHoudiniAssetComponent * InHAC, 
+	const TSubclassOf<AActor>& InActorClass, 
+	const FActorSpawnParameters& InSpawnParams)
 {
 	if (!IsValid(InActorFactory))
 	{
@@ -8831,7 +8880,24 @@ FHoudiniEngineBakeUtils::SpawnBakeActor(UActorFactory* const InActorFactory, UOb
 	}
 
 	AActor* SpawnedActor = nullptr;
-	if (InActorFactory->IsA<UActorFactoryClass>())
+
+	if (BakeSettings.ActorBakeOption == EHoudiniEngineActorBakeOption::OneActorPerHDA)
+	{
+		// If we are grouping components, just create a default actor.
+		UClass * ActorClass = InActorClass.Get();
+		if (ActorClass == nullptr)
+			ActorClass = AActor::StaticClass();
+
+		SpawnedActor = InActorFactory->CreateActor(ActorClass, InLevel, InTransform, InSpawnParams);
+
+		// Ensure there is a root component. It seems empty actor's don't have one.
+		if (SpawnedActor->GetRootComponent() == nullptr)
+		{
+			USceneComponent* RootComponent = NewObject<USceneComponent>(SpawnedActor, USceneComponent::GetDefaultSceneRootVariableName());
+			SpawnedActor->SetRootComponent(RootComponent);
+		}
+	}
+	else if (InActorFactory->IsA<UActorFactoryClass>())
 	{
 		if (!IsValid(InActorClass.Get()))
 		{
@@ -8947,6 +9013,16 @@ UUserDefinedStruct* FHoudiniEngineBakeUtils::DuplicateUserDefinedStruct(UUserDef
 	CastChecked<UUserDefinedStructEditorData>(DuplicatedStruct->EditorData)->RecreateDefaultInstance();
 
 	return DuplicatedStruct;
+}
+
+void FHoudiniBakeSettings::SetFromHAC(UHoudiniAssetComponent* HAC)
+{
+	bReplaceActors = HAC->bReplacePreviousBake;
+	bReplaceAssets = HAC->bReplacePreviousBake;
+	bRecenterBakedActors = HAC->bRecenterBakedActors;
+	ActorBakeOption = HAC->ActorBakeOption;
+
+	
 }
 
 #undef LOCTEXT_NAMESPACE

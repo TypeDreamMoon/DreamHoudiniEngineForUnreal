@@ -637,6 +637,9 @@ public:
 	bool bReplacePreviousBake;
 
 	UPROPERTY()
+	EHoudiniEngineActorBakeOption ActorBakeOption;
+
+	UPROPERTY()
 	bool bLandscapeUseTempLayers;
 #endif
 
