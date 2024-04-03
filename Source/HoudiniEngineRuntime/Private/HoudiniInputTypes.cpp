@@ -57,9 +57,9 @@ FHoudiniInputObjectSettings::FHoudiniInputObjectSettings()
 	, bLandscapeSplinesExportLeftRightCurves(false)
 	, bLandscapeSplinesExportSplineMeshComponents(false)
 	, bMergeSplineMeshComponents(true)
-	, bExportPerEditLayerData(false)
-	, bExportCombinedHeightOnly(false)
-	, bExportLevelInstanceContent(true)
+	, bExportHeightDataPerEditLayer(true)
+	, bExportMergedPaintLayers(true)
+	, bExportPaintLayersPerEditLayer(false)
 {
 	UHoudiniRuntimeSettings const* const HoudiniRuntimeSettings = GetDefault<UHoudiniRuntimeSettings>();
 	if (IsValid(HoudiniRuntimeSettings))

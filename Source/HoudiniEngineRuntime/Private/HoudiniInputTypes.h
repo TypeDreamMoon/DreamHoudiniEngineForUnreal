@@ -168,13 +168,17 @@ public:
 	UPROPERTY()
 	bool bMergeSplineMeshComponents;
 
-	// If enabled, target layers are exported per Edit Layer.
+	// If enabled, height data is exported per Edit Layer.
 	UPROPERTY()
-	bool bExportEditLayers;
+	bool bExportHeightDataPerEditLayer;
 
 	// Export paint layers.
 	UPROPERTY()
-	bool bExportPaintLayers;
+	bool bExportPaintLayersPerEditLayer;
+
+	// Export paint layers.
+	UPROPERTY()
+	bool bExportMergedPaintLayers;
 
 	// Export paint layers.
 	UPROPERTY()

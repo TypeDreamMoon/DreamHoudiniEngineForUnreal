@@ -1910,8 +1910,8 @@ FHoudiniInputDetails::AddExportSelectedLandscapesOnlyCheckBox(
 			.Content()
 		[
 			SNew(STextBlock)
-			.Text(LOCTEXT("ExportHeightOnlyDataCheckBox", "Export Height Only"))
-			.ToolTipText(LOCTEXT("ExportPaintLayersCheckBoxTip", "Exports Paint Layers. If not checked, only the height field will be exported."))
+			.Text(LOCTEXT("ExportEditLayersDataCheckBox", "Export Height Data Per Edit Layer"))
+			.ToolTipText(LOCTEXT("ExportEditLayersDataCheckBoxTip", "Exports Edit Layer data. If Edit Layers are not needed disabling this will improve performance."))
 			.Font(_GetEditorStyle().GetFontStyle("PropertyWindow.NormalFont"))
 		]
 		.IsChecked_Lambda([MainInput]()
@@ -1919,7 +1919,7 @@ FHoudiniInputDetails::AddExportSelectedLandscapesOnlyCheckBox(
 			if (!IsValidWeakPointer(MainInput))
 				return ECheckBoxState::Unchecked;
 
-			return MainInput->IsExportCombinedHeightOnlyEnabled() ? ECheckBoxState::Checked : ECheckBoxState::Unchecked;
+			return MainInput->IsEditLayerHeightExportEnabled() ? ECheckBoxState::Checked : ECheckBoxState::Unchecked;
 		})
 		.OnCheckStateChanged_Lambda([InInputs, MainInput](ECheckBoxState NewState)
 		{
@@ -1937,18 +1937,17 @@ FHoudiniInputDetails::AddExportSelectedLandscapesOnlyCheckBox(
 					continue;
 
 				bool bNewState = (NewState == ECheckBoxState::Checked);
-				if (bNewState == CurrentInput->IsExportCombinedHeightOnlyEnabled())
+				if (bNewState == CurrentInput->IsEditLayerHeightExportEnabled())
 					continue;
 
 				CurrentInput->Modify();
-				CurrentInput->SetExportHeightOnly(bNewState);
+				CurrentInput->SetExportHeightDataPerEditLayer(bNewState);
 				CurrentInput->UpdateLandscapeInputSelection();
 				CurrentInput->MarkChanged(true);
 				CurrentInput->MarkAllInputObjectsChanged(true);
 			}
 		})
 	];
-
 
 	InVerticalBox->AddSlot()
 	.Padding(2, 2, 5, 2)
@@ -1958,8 +1957,8 @@ FHoudiniInputDetails::AddExportSelectedLandscapesOnlyCheckBox(
 		.Content()
 		[
 			SNew(STextBlock)
-			.Text(LOCTEXT("ExportPerLayerDataCheckBox", "Export Individual Paint Layers"))
-			.ToolTipText(LOCTEXT("ExportPerLayerDataCheckBoxTip", "Exports Paint Layers individually per Edit Layer. May be slow for large landscapes with many layers."))
+			.Text(LOCTEXT("ExportPaintLayersPerEditLauyerCheckBox", "Export Paint Layers Per Edit Layer"))
+			.ToolTipText(LOCTEXT("ExportPaintLayersPerEditLauyerCheckBoxTip", "Exports Paint Layer data per Edit Layer. If Edit Layers are not needed disabling this will improve performance."))
 			.Font(_GetEditorStyle().GetFontStyle("PropertyWindow.NormalFont"))
 		]
 		.IsChecked_Lambda([MainInput]()
@@ -1967,11 +1966,7 @@ FHoudiniInputDetails::AddExportSelectedLandscapesOnlyCheckBox(
 			if (!IsValidWeakPointer(MainInput))
 				return ECheckBoxState::Unchecked;
 
-			return MainInput->IsPaintLayerExportEnabled() ? ECheckBoxState::Checked : ECheckBoxState::Unchecked;
-		})
-		.IsEnabled_Lambda([MainInput]()
-		{
-			return true;
+			return MainInput->IsPaintLayerPerEditLayerExportEnabled() ? ECheckBoxState::Checked : ECheckBoxState::Unchecked;
 		})
 		.IsEnabled_Lambda([MainInput]()
 		{
@@ -1993,11 +1988,11 @@ FHoudiniInputDetails::AddExportSelectedLandscapesOnlyCheckBox(
 					continue;
 
 				bool bNewState = (NewState == ECheckBoxState::Checked);
-				if (bNewState == CurrentInput->IsPaintLayerExportEnabled())
+				if (bNewState == CurrentInput->IsPaintLayerPerEditLayerExportEnabled())
 					continue;
 
 				CurrentInput->Modify();
-				CurrentInput->SetPaintLayerExportEanbled(bNewState);
+				CurrentInput->SetExportPaintLayerPerEditLayer(bNewState);
 				CurrentInput->UpdateLandscapeInputSelection();
 				CurrentInput->MarkChanged(true);
 				CurrentInput->MarkAllInputObjectsChanged(true);
@@ -2005,6 +2000,52 @@ FHoudiniInputDetails::AddExportSelectedLandscapesOnlyCheckBox(
 		})
 	];
 
+	InVerticalBox->AddSlot()
+	.Padding(2, 2, 5, 2)
+	.AutoHeight()
+	[
+		SNew(SCheckBox)
+		.Content()
+		[
+			SNew(STextBlock)
+			.Text(LOCTEXT("ExportMergedPaintLayersCheckBox", "Export Merged Paint Layers Per Landscape"))
+			.ToolTipText(LOCTEXT("ExportMergedPaintLayersCheckBoxTip", "Exports merged Paint Layers for the landscape."))
+			.Font(_GetEditorStyle().GetFontStyle("PropertyWindow.NormalFont"))
+		]
+		.IsChecked_Lambda([MainInput]()
+		{
+			if (!IsValidWeakPointer(MainInput))
+				return ECheckBoxState::Unchecked;
+
+			return MainInput->IsMergedPaintLayerExportEnabled() ? ECheckBoxState::Checked : ECheckBoxState::Unchecked;
+		})
+		.OnCheckStateChanged_Lambda([InInputs, MainInput](ECheckBoxState NewState)
+			{
+				if (!IsValidWeakPointer(MainInput))
+					return;
+
+				FScopedTransaction Transaction(
+					TEXT(HOUDINI_MODULE_EDITOR),
+					LOCTEXT("HoudiniInputChange", "Houdini Input: Changed Export Selected Landscape Components Only CheckBox"),
+					MainInput->GetOuter());
+
+				for (auto CurrentInput : InInputs)
+				{
+					if (!IsValidWeakPointer(CurrentInput))
+						continue;
+
+					bool bNewState = (NewState == ECheckBoxState::Checked);
+					if (bNewState == CurrentInput->IsMergedPaintLayerExportEnabled())
+						continue;
+
+					CurrentInput->Modify();
+					CurrentInput->SetExportMergedPaintLayers(bNewState);
+					CurrentInput->UpdateLandscapeInputSelection();
+					CurrentInput->MarkChanged(true);
+					CurrentInput->MarkAllInputObjectsChanged(true);
+				}
+			})
+		];
 
 	InVerticalBox->AddSlot()
 	.Padding(2, 2, 5, 2)
