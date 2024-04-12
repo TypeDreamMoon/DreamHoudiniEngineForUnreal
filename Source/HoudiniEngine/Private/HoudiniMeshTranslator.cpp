@@ -8248,7 +8248,18 @@ FHoudiniMeshToBuild FHoudiniMeshTranslator::ScanOutputForMeshesToBuild()
 
 	}
 
-	return MeshesToBuild;
+bool
+FHoudiniMeshTranslator::TryToFindPropertyOnSourceModel(
+	FStaticMeshSourceModel& InSourceModel,
+	const FString& InPropertyName,
+	FEditPropertyChain& InPropertyChain,
+	FProperty*& OutFoundProperty,
+	void*& OutContainer)
+{
+	bool bFoundProperty = false;
+	FHoudiniGenericAttribute::TryToFindProperty(
+		&InSourceModel, InSourceModel.StaticStruct(), InPropertyName, InPropertyChain, OutFoundProperty, bFoundProperty, OutContainer, false);
+	return bFoundProperty;
 }
 
 FKAggregateGeom FHoudiniMeshTranslator::BuildAggregateCollision(FHoudiniSplitGroupMesh& Mesh)
