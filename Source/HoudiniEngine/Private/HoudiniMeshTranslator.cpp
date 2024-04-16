@@ -1537,20 +1537,45 @@ FHoudiniMeshTranslator::CreateStaticMesh_RawMesh()
 		if (!FoundOutputObject)
 			FoundOutputObject = InputObjects.Find(OutputObjectIdentifier);
 
-		// If we don't yet have package params for this object identifier, fetch and resolve attributes for the split
-		// and update the package params
-		TMap<FString, FString> TempAttributes;
-		TMap<FString, FString> TempTokens;
-		bool bCopyAttributesAndTokens = false;
-		if (!ObjectIdentifiersToPackageParams.Contains(OutputObjectIdentifier))
-		{
-			// Get all the supported attributes from the HGPO
-			// For LOD / Normal mesh we use the MainIdentifier to read attributes (Normal or LOD0) since they all
-			// go into the same mesh/package
-			if ((SplitType == EHoudiniSplitType::Normal || SplitType == EHoudiniSplitType::LOD) && bHasMainIdentifier)
-				CopyAttributesFromHGPOForSplit(MainIdentifier, TempAttributes, TempTokens);
-			else
-				CopyAttributesFromHGPOForSplit(OutputObjectIdentifier, TempAttributes, TempTokens);
+	// Look for a specific prim attribute first
+	if (!FHoudiniEngineUtils::HapiGetAttributeDataAsInteger(
+		GeoId, PartId, HAPI_UNREAL_ATTRIB_NANITE_POSITION_PRECISION,
+		AttributeInfo, IntData, 1, HAPI_ATTROWNER_PRIM, PrimIndex, 1))
+	{
+		//Global search for the attribute
+		IntData.Empty();
+		FHoudiniEngineUtils::HapiGetAttributeDataAsInteger(
+			GeoId, PartId, HAPI_UNREAL_ATTRIB_NANITE_POSITION_PRECISION,
+			AttributeInfo, IntData, 1, HAPI_ATTROWNER_INVALID, 0, 1);
+	}
+
+	if (IntData.Num() > 0)
+	{
+		StaticMesh->NaniteSettings.PositionPrecision = IntData[0];
+	}
+
+	// Look for the percent triangle attribute, one by default (all triangles)
+	// as this mesh is also used in the physics engine as the complex collision version
+	StaticMesh->NaniteSettings.FallbackPercentTriangles = 1.0f;
+	
+	TArray<float> FloatData;
+	// Look for a specific prim attribute first
+	if (!FHoudiniEngineUtils::HapiGetAttributeDataAsFloat(
+		GeoId, PartId, HAPI_UNREAL_ATTRIB_NANITE_PERCENT_TRIANGLES,
+		AttributeInfo, FloatData, 1, HAPI_ATTROWNER_PRIM, PrimIndex, 1))
+	{
+		//Global search for the attribute
+		FHoudiniEngineUtils::HapiGetAttributeDataAsFloat(
+			GeoId, PartId, HAPI_UNREAL_ATTRIB_NANITE_PERCENT_TRIANGLES,
+			AttributeInfo, FloatData, 1, HAPI_ATTROWNER_INVALID, 0, 1);
+	}
+
+	if (FloatData.Num() > 0)
+	{
+		// If a nanite percent triangles attribute was found, we likely also want to set the fallback target to PercentTriangles
+		StaticMesh->NaniteSettings.FallbackTarget = ENaniteFallbackTarget::PercentTriangles;		
+		StaticMesh->NaniteSettings.FallbackPercentTriangles = FMath::Clamp<float>(FloatData[0], 0.0f, 1.0f);
+	}
 
 			// Resolve our final package params
 			FHoudiniAttributeResolver Resolver;
@@ -1574,10 +1599,12 @@ FHoudiniMeshTranslator::CreateStaticMesh_RawMesh()
 		// Try to find an existing SM from a previous cook
 		UStaticMesh* FoundStaticMesh = FindExistingStaticMesh(OutputObjectIdentifier);
 
-		// Flag whether or not we need to rebuild the mesh
-		bool bRebuildStaticMesh = false;
-		if (HGPO.GeoInfo.bHasGeoChanged || HGPO.PartInfo.bHasChanged || ForceRebuild || !FoundStaticMesh || !FoundOutputObject)
-			bRebuildStaticMesh = true;
+	if (FloatData.Num() > 0)
+	{
+		// If a nanite relative error attribute was found, we likely also want to set the fallback target to RelativeError
+		StaticMesh->NaniteSettings.FallbackTarget = ENaniteFallbackTarget::RelativeError;		
+		StaticMesh->NaniteSettings.FallbackRelativeError = FMath::Clamp<float>(FloatData[0], 0.0f, 1.0f);
+	}
 
 		// TODO: Handle materials
 		if (!bRebuildStaticMesh && !bMaterialHasChanged)
