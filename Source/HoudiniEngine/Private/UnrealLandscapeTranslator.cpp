@@ -72,11 +72,7 @@ FUnrealLandscapeTranslator::CreateMeshOrPointsFromLandscape(
 	//--------------------------------------------------------------------------------------------------
 	HAPI_NodeId InputNodeId = -1;
 	// Create the curve SOP Node
-	const bool bUseRefCountedInputSystem = FUnrealObjectInputRuntimeUtils::IsRefCountedInputSystemEnabled();
-	if (bUseRefCountedInputSystem)
-		HOUDINI_CHECK_ERROR_RETURN(FHoudiniEngineUtils::CreateNode(ParentNodeId, TEXT("null"), InputNodeNameString, true, &InputNodeId), false);
-	else
-		HOUDINI_CHECK_ERROR_RETURN(FHoudiniEngineUtils::CreateInputNode(InputNodeNameString, InputNodeId, ParentNodeId), false);
+	HOUDINI_CHECK_ERROR_RETURN(FHoudiniEngineUtils::CreateNode(ParentNodeId, TEXT("null"), InputNodeNameString, true, &InputNodeId), false);
 
 	// Check if we have a valid id for this new input asset.
 	if (!FHoudiniEngineUtils::IsHoudiniNodeValid(InputNodeId))
@@ -820,7 +816,6 @@ FUnrealLandscapeTranslator::CreateInputNodeForLandscapeObject(
 	FUnrealObjectInputHandle& OutHandle,
 	const bool& bInputNodesCanBeDeleted)
 {
-	const bool bUseRefCountedInputSystem = FUnrealObjectInputRuntimeUtils::IsRefCountedInputSystemEnabled();
 	FString FinalInputNodeName = InputNodeName;
 	EHoudiniLandscapeExportType ExportType = InInput->GetLandscapeExportType();
 
@@ -828,8 +823,8 @@ FUnrealLandscapeTranslator::CreateInputNodeForLandscapeObject(
 	
 	const FHoudiniInputObjectSettings& InputSettings = InInput->GetInputSettings();
 
-	const bool bApplyWorldTransformToMeshOrPointCloudData = !bUseRefCountedInputSystem;
-	const bool bSetObjectTransformToWorldTransform = !bUseRefCountedInputSystem;
+	const bool bApplyWorldTransformToMeshOrPointCloudData = false;
+	const bool bSetObjectTransformToWorldTransform = false;
 
 	bool bExportSelectionOnly = InputSettings.bLandscapeExportSelectionOnly;
 	bool bLandscapeAutoSelectComponent = InputSettings.bLandscapeAutoSelectComponent;
@@ -845,7 +840,6 @@ FUnrealLandscapeTranslator::CreateInputNodeForLandscapeObject(
 	FUnrealObjectInputHandle ParentHandle;
 	HAPI_NodeId ParentNodeId = -1;
 
-	if (bUseRefCountedInputSystem)
 	{
 		const FUnrealObjectInputOptions Options = FUnrealObjectInputOptions::MakeOptionsForLandscapeData(
 			InputSettings, bExportSelectionOnly ? &SelectedComponents : nullptr);
@@ -986,7 +980,6 @@ FUnrealLandscapeTranslator::CreateInputNodeForLandscapeObject(
 	if (!bSuccess)
 		return false;
 
-	if (bUseRefCountedInputSystem)
 	{
 		FUnrealObjectInputHandle Handle;
 		HAPI_NodeId InputObjectNodeId = FHoudiniEngineUtils::HapiGetParentNodeId(InputNodeId);
@@ -994,7 +987,6 @@ FUnrealLandscapeTranslator::CreateInputNodeForLandscapeObject(
 			OutHandle = Handle;
 	}
 
-	// dfdf
 	return true;
 }
 

@@ -62,26 +62,14 @@ bool FUnrealAnimationTranslator::CreateInputNodeForAnimation(
 	FUnrealObjectInputHandle& OutHandle,
 	const bool& bInputNodesCanBeDeleted)
 {
-	const bool bUseRefCountedInputSystem = FUnrealObjectInputRuntimeUtils::IsRefCountedInputSystemEnabled();
 	FString FinalInputNodeName = InputNodeName;
 
 	FUnrealObjectInputIdentifier Identifier;
 	FUnrealObjectInputHandle ParentHandle;
 	HAPI_NodeId ParentNodeId = -1;
 
-	if (bUseRefCountedInputSystem)
 	{
-		bool bDefaultImportAsReference = false;
-		bool bDefaultImportAsReferenceRotScaleEnabled = false;
-		const FUnrealObjectInputOptions Options(
-			bDefaultImportAsReference,
-			bDefaultImportAsReferenceRotScaleEnabled,
-			false,
-			false,
-			false
-		);
-
-
+		const FUnrealObjectInputOptions Options;
 		return true;
 	}
 	return false;
@@ -110,8 +98,6 @@ FUnrealAnimationTranslator::HapiCreateInputNodeForAnimation(
 	FUnrealObjectInputIdentifier Identifier;
 	FUnrealObjectInputHandle ParentHandle;
 	HAPI_NodeId ParentNodeId = -1;
-	const bool bUseRefCountedInputSystem = FUnrealObjectInputRuntimeUtils::IsRefCountedInputSystemEnabled();
-	if (bUseRefCountedInputSystem)
 	{
 		// Creates this input's identifier and input options
 		bool bDefaultImportAsReference = false;
@@ -334,7 +320,6 @@ FUnrealAnimationTranslator::HapiCreateInputNodeForAnimation(
 
 	}
 
-	if (bUseRefCountedInputSystem)
 	{
 		FUnrealObjectInputHandle Handle;
 		if (FUnrealObjectInputUtils::AddNodeOrUpdateNode(Identifier, InputNodeId, Handle, InputObjectNodeId, nullptr, bInputNodesCanBeDeleted))
