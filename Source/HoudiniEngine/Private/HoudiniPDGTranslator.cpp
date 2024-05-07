@@ -342,7 +342,7 @@ FHoudiniPDGTranslator::CreateAllResultObjectsFromPDGOutputs(
 					FHoudiniMeshTranslator::CreateAllMeshesAndComponentsFromHoudiniOutput(
 						CurOutput,
 						InPackageParams,
-						HAC->StaticMeshMethod,
+						EHoudiniStaticMeshMethod::FMeshDescription,
 						HAC->bSplitMeshSupport,
 						bIsHACValid ? HAC->StaticMeshGenerationProperties : FHoudiniEngineRuntimeUtils::GetDefaultStaticMeshGenerationProperties(),
 						bIsHACValid ? HAC->StaticMeshBuildSettings : FHoudiniEngineRuntimeUtils::GetDefaultMeshBuildSettings(),
