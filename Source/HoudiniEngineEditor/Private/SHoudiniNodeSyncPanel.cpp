@@ -933,7 +933,8 @@ SHoudiniNodeSyncPanel::Construct( const FArguments& InArgs )
 			[
 				SNew(SHorizontalBox)
 				+ SHorizontalBox::Slot()
-				.HAlign(HAlign_Left)
+				.HAlign(HAlign_Right)
+				.Padding(5.0, 5.0, 5.0, 5.0)
 				[
 					SNew(SButton)
 					.VAlign(VAlign_Center)
@@ -954,6 +955,7 @@ SHoudiniNodeSyncPanel::Construct( const FArguments& InArgs )
 				]
 				+ SHorizontalBox::Slot()
 				.HAlign(HAlign_Left)
+				.Padding(5.0, 5.0, 5.0, 5.0)
 				[
 					SNew(SButton)
 					.VAlign(VAlign_Center)
