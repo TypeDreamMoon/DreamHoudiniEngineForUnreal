@@ -420,11 +420,17 @@ FHoudiniSkeletalMeshTranslator::UpdateBuildSettings(SKBuildSettings & BuildSetti
 	float UnrealSKImportScale = 100.0f;
 	if (UnrealSKImportScaleInfo.exists)
 	{
+		// TODO: Only get the first value since that's the one we're using?
 		TArray<float> UnrealSKImportScaleArray;
-		FHoudiniHapiAccessor Accessor(GeoId, PartId, HAPI_UNREAL_ATTRIB_SKELETON_IMPORT_SCALE);
-		bool bSuccess = Accessor.GetAttributeData(HAPI_ATTROWNER_INVALID, UnrealSKImportScaleArray);
+		FHoudiniEngineUtils::HapiGetAttributeDataAsFloat(
+			GeoId,
+			PartId,
+			HAPI_UNREAL_ATTRIB_SKELETON_IMPORT_SCALE,
+			UnrealSKImportScaleInfo,
+			UnrealSKImportScaleArray,
+			UnrealSKImportScaleInfo.tupleSize);
 
-		if (bSuccess && UnrealSKImportScaleArray.Num() > 0)
+		if (UnrealSKImportScaleArray.Num() > 0)
 		{
 			UnrealSKImportScale = UnrealSKImportScaleArray[0];
 		}
@@ -707,18 +713,25 @@ FHoudiniSkeletalMeshTranslator::FillSkeletalMeshImportData(SKBuildSettings& Buil
 	//-----------------------------------------------------------------------------------
 	HAPI_AttributeInfo ColorInfo;
 	TArray<float> ColorData;
+	FHoudiniEngineUtils::HapiGetAttributeDataAsFloat(
+		ShapeGeoId,
+		ShapePartId,
+		HAPI_UNREAL_ATTRIB_COLOR,
+		ColorInfo,
+		ColorData);
 
-	FHoudiniHapiAccessor Accessor(ShapeGeoId, ShapePartId, HAPI_UNREAL_ATTRIB_COLOR);
-	Accessor.GetInfo(ColorInfo, HAPI_ATTROWNER_INVALID);
-	bool bColorInfoExists = Accessor.GetAttributeData(ColorInfo, ColorData);
 
 	//-----------------------------------------------------------------------------------
 	// Tangents
 	//-----------------------------------------------------------------------------------
-
+	HAPI_AttributeInfo TangentInfo;
 	TArray<float> TangentData;
-	Accessor.Init(ShapeGeoId,ShapePartId, HAPI_UNREAL_ATTRIB_TANGENTU);
-	Accessor.GetAttributeData(HAPI_ATTROWNER_INVALID, TangentData);
+	FHoudiniEngineUtils::HapiGetAttributeDataAsFloat(
+		ShapeGeoId,
+		ShapePartId,
+		HAPI_UNREAL_ATTRIB_TANGENTU,
+		TangentInfo,
+		TangentData);
 
 	//-----------------------------------------------------------------------------------
 	// Materials
@@ -820,7 +833,7 @@ FHoudiniSkeletalMeshTranslator::FillSkeletalMeshImportData(SKBuildSettings& Buil
 			// ERROR: This keeps going out of bounds. Why are we getting point UVs ? Should be vertex?!
 			Wedge.UVs[TexCoordIndex] = FVector2f(UVData[UVIndex * UVTupleSize], 1.0f - UVData[UVIndex * UVTupleSize + 1]);
 
-			if (bColorInfoExists)
+			if (ColorInfo.exists)
 			{
 				
 				int ColorIndex = (ColorInfo.owner == HAPI_ATTROWNER_VERTEX ? VertexInstanceIndex : VertexIndex) * ColorInfo.tupleSize;
@@ -1022,9 +1035,14 @@ FHoudiniSkeletalMeshTranslator::FillSkeletalMeshImportData(SKBuildSettings& Buil
 	}
 	
 	BoneRotationData.SetNum(PoseRotationInfo.count * RotationStride);
-	Accessor.Init(PoseGeoId, PosePartId, HAPI_UNREAL_ATTRIB_TANGENTU);
-
-	if (!Accessor.GetAttributeData(HAPI_ATTROWNER_POINT, TangentData))
+	if (!FHoudiniEngineUtils::HapiGetAttributeDataAsFloat(
+			PoseGeoId,
+			PosePartId,
+			"transform",
+			PoseRotationInfo,
+			BoneRotationData,
+			0,
+			HAPI_ATTROWNER_POINT))
 	{
 		return false;
 	}
@@ -1155,8 +1173,7 @@ FHoudiniSkeletalMeshTranslator::FillSkeletalMeshImportData(SKBuildSettings& Buil
 
 	//if not fbx imported, these indexes match CaptNamesAltData sorting
 	TArray<float> BoneCaptureData;
-	Accessor.Init(ShapeGeoId, ShapePartId, "boneCapture");
-	bool bSuccess = Accessor.GetAttributeData(HAPI_ATTROWNER_INVALID, BoneCaptureData);
+	FHoudiniEngineUtils::HapiGetAttributeDataAsFloat(ShapeGeoId, ShapePartId, "boneCapture", BoneCaptureInfo, BoneCaptureData);
 
 	struct FBoneCaptureData
 	{
@@ -1328,11 +1345,10 @@ bool FHoudiniSkeletalMeshTranslator::CreateSkeletalMesh_SkeletalMeshImportData()
 
 		if (bFoundUnrealSkeletonPath)
 		{
+			HAPI_AttributeInfo SkeletonAttrInfo;
+			
 			TArray<FString> StringData;
-
-			FHoudiniHapiAccessor Accessor(SkeletonPathGeoId, SkeletonPathPartId, HAPI_UNREAL_ATTRIB_SKELETON);
-			Accessor.GetAttributeData(HAPI_ATTROWNER_INVALID, StringData);
-
+			FHoudiniEngineUtils::HapiGetAttributeDataAsString(SkeletonPathGeoId, SkeletonPathPartId, HAPI_UNREAL_ATTRIB_SKELETON, SkeletonAttrInfo, StringData);
 			if (StringData.Num() == 1)
 			{
 				const FString UnrealSkeletonPath = StringData[0];
@@ -1507,12 +1523,10 @@ bool
 FHoudiniSkeletalMeshTranslator::IsRestGeometryInstancer(const HAPI_NodeId& GeoId, const HAPI_NodeId& PartId, FString& OutBaseName)
 {
 	// Rest Geometry packed prim name must end with '.shp'
+	HAPI_AttributeInfo NameAttrInfo; 
 	TArray<FString> NameData;
-
-	FHoudiniHapiAccessor Accessor(GeoId, PartId, "name");
-	bool bSuccess = Accessor.GetAttributeData(HAPI_ATTROWNER_PRIM, NameData);
-
-	if (!bSuccess || NameData.Num() == 0)
+	FHoudiniEngineUtils::HapiGetAttributeDataAsString(GeoId, PartId, "name", NameAttrInfo,NameData, 0, HAPI_ATTROWNER_PRIM);
+	if (!NameAttrInfo.exists || NameData.Num() == 0)
 	{
 		return false;
 	}
@@ -1582,12 +1596,10 @@ FHoudiniSkeletalMeshTranslator::IsCapturePoseInstancer(const HAPI_NodeId& GeoId,
 
 
 	// Capture Pose packed prim name must end with '.skel'
+	HAPI_AttributeInfo NameAttrInfo; 
 	TArray<FString> NameData;
-
-	FHoudiniHapiAccessor Accessor(GeoId, PartId, "name");
-	bool bSuccess = Accessor.GetAttributeData(HAPI_ATTROWNER_PRIM, NameData);
-
-	if (!bSuccess || NameData.Num() == 0)
+	FHoudiniEngineUtils::HapiGetAttributeDataAsString(GeoId, PartId, "name", NameAttrInfo,NameData, 0, HAPI_ATTROWNER_PRIM);
+	if (!NameAttrInfo.exists || NameData.Num() == 0)
 	{
 		return false;
 	}
@@ -1819,11 +1831,10 @@ FHoudiniSkeletalMeshTranslator::CreateSkeletalMeshMaterials(
 
 	HAPI_AttributeInfo UnrealMaterialInfo;
 	FHoudiniApi::AttributeInfo_Init(&UnrealMaterialInfo);
-
-	FHoudiniHapiAccessor Accessor(InShapeMeshHGPO.GeoId, InShapeMeshHGPO.PartId, HAPI_UNREAL_ATTRIB_MATERIAL);
-	bool bSuccess = Accessor.GetAttributeData(HAPI_ATTROWNER_PRIM, UnrealMatPerFaceMatNames, 0, NumFaces);
-
-	if (!bSuccess)
+	if (!FHoudiniEngineUtils::HapiGetAttributeDataAsString(
+		InShapeMeshHGPO.GeoId, InShapeMeshHGPO.PartId,
+		HAPI_UNREAL_ATTRIB_MATERIAL, UnrealMaterialInfo, UnrealMatPerFaceMatNames,
+		0, HAPI_ATTROWNER_PRIM, 0, NumFaces))
 	{
 		// Unable to read the unreal materials, empty the array
 		UnrealMatPerFaceMatNames.Empty();
