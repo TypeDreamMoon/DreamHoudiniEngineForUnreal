@@ -1127,7 +1127,6 @@ FHoudiniMeshTranslator::UpdatePartNeededMaterials()
 
 	// LOD Screensize
 	PartLODScreensize.Empty();
-	FHoudiniApi::AttributeInfo_Init(&AttribInfoLODScreensize);
 }
 
 bool
@@ -1139,12 +1138,10 @@ FHoudiniMeshTranslator::UpdatePartPositionIfNeeded()
 	if (PartPositions.Num() > 0)
 		return true;
 
-	if (!FHoudiniEngineUtils::HapiGetAttributeDataAsFloat(
-		HGPO.GeoInfo.NodeId,
-		HGPO.PartInfo.PartId,
-		HAPI_UNREAL_ATTRIB_POSITION,
-		AttribInfoPositions,
-		PartPositions))
+	FHoudiniHapiAccessor Accessor(HGPO.GeoInfo.NodeId, HGPO.PartInfo.PartId, HAPI_UNREAL_ATTRIB_POSITION);
+	Accessor.GetInfo(AttribInfoPositions);
+
+	if (!Accessor.GetAttributeData(AttribInfoPositions, PartPositions))
 	{
 		TRACE_CPUPROFILER_EVENT_SCOPE(TEXT("FHoudiniMeshTranslator::UpdatePartNeededMaterials - Get the unique material infos"));
 		// Get the unique material infos
@@ -1176,13 +1173,10 @@ FHoudiniMeshTranslator::UpdatePartLODScreensizeIfNeeded()
 	if (PartLODScreensize.Num() > 0)
 		return true;
 
+	FHoudiniHapiAccessor Accessor(HGPO.GeoInfo.NodeId, HGPO.PartInfo.PartId, HAPI_UNREAL_ATTRIB_NORMAL);
+	Accessor.GetInfo(AttribInfoNormals);
 	// Retrieve normal data for this part
-	bool Success = FHoudiniEngineUtils::HapiGetAttributeDataAsFloat(
-		HGPO.GeoInfo.NodeId,
-		HGPO.PartInfo.PartId,
-		HAPI_UNREAL_ATTRIB_NORMAL,
-		AttribInfoNormals,
-		PartNormals);
+	bool Success = Accessor.GetAttributeData(AttribInfoNormals, PartNormals);
 
 	// There is no normals to fetch
 	if (!AttribInfoNormals.exists)
@@ -1220,12 +1214,9 @@ FHoudiniMeshTranslator::UpdateStaticMeshNaniteSettings(const int32& GeoId, const
 		AttributeInfo, IntData, 1, HAPI_ATTROWNER_PRIM, PrimIndex, 1))
 	{
 		// Retrieve TangentU data for this part
-		bool Success = FHoudiniEngineUtils::HapiGetAttributeDataAsFloat(
-			HGPO.GeoInfo.NodeId,
-			HGPO.PartInfo.PartId,
-			HAPI_UNREAL_ATTRIB_TANGENTU,
-			AttribInfoTangentU,
-			PartTangentU);
+		FHoudiniHapiAccessor Accessor(HGPO.GeoInfo.NodeId, HGPO.PartInfo.PartId, HAPI_UNREAL_ATTRIB_TANGENTU);
+		Accessor.GetInfo(AttribInfoTangentU);
+		bool Success = Accessor.GetAttributeData(AttribInfoTangentU, PartTangentU);
 		
 		if (!Success && AttribInfoTangentU.exists)
 		{
@@ -1239,13 +1230,9 @@ FHoudiniMeshTranslator::UpdateStaticMeshNaniteSettings(const int32& GeoId, const
 
 	if (IntData.Num() > 0)
 	{
-		// Retrieve TangentV data for this part
-		bool Success = FHoudiniEngineUtils::HapiGetAttributeDataAsFloat(
-			HGPO.GeoInfo.NodeId,
-			HGPO.PartInfo.PartId,
-			HAPI_UNREAL_ATTRIB_TANGENTV,
-			AttribInfoTangentV,
-			PartTangentV);
+		FHoudiniHapiAccessor Accessor(HGPO.GeoInfo.NodeId, HGPO.PartInfo.PartId, HAPI_UNREAL_ATTRIB_TANGENTV);
+		Accessor.GetInfo(AttribInfoTangentV);
+		bool Success = Accessor.GetAttributeData(AttribInfoTangentV, PartTangentV);
 
 		if (!Success && AttribInfoTangentV.exists)
 		{
@@ -1261,9 +1248,9 @@ FHoudiniMeshTranslator::UpdateStaticMeshNaniteSettings(const int32& GeoId, const
 	IntData.Empty();
 	StaticMesh->NaniteSettings.PositionPrecision = MIN_int32;
 
-	bool Success = FHoudiniEngineUtils::HapiGetAttributeDataAsFloat(
-		HGPO.GeoInfo.NodeId, HGPO.PartInfo.PartId,
-		HAPI_UNREAL_ATTRIB_COLOR, AttribInfoColors, PartColors);
+	FHoudiniHapiAccessor Accessor(HGPO.GeoInfo.NodeId, HGPO.PartInfo.PartId, HAPI_UNREAL_ATTRIB_COLOR);
+	Accessor.GetInfo(AttribInfoColors);
+	bool Success = Accessor.GetAttributeData(AttribInfoColors, PartColors);
 
 	if (IntData.Num() > 0)
 	{
@@ -1294,9 +1281,9 @@ FHoudiniMeshTranslator::UpdateStaticMeshNaniteSettings(const int32& GeoId, const
 	// Also look for an attribute setting the relative error (default to 1)
 	StaticMesh->NaniteSettings.FallbackRelativeError = 1.0f;
 
-	bool Success = FHoudiniEngineUtils::HapiGetAttributeDataAsFloat(
-		HGPO.GeoInfo.NodeId, HGPO.PartInfo.PartId,
-		HAPI_UNREAL_ATTRIB_ALPHA, AttribInfoAlpha, PartAlphas);
+	FHoudiniHapiAccessor Accessor(HGPO.GeoInfo.NodeId, HGPO.PartInfo.PartId, HAPI_UNREAL_ATTRIB_ALPHA);
+	Accessor.GetInfo(AttribInfoAlpha);
+	bool Success = Accessor.GetAttributeData(AttribInfoAlpha, PartAlphas);
 
 	if (FloatData.Num() > 0)
 	{
@@ -1313,10 +1300,9 @@ FHoudiniMeshTranslator::UpdatePartFaceSmoothingIfNeeded()
 	if (PartFaceSmoothingMasks.Num() > 0)
 		return true;
 
-	bool Success = FHoudiniEngineUtils::HapiGetAttributeDataAsInteger(
-		HGPO.GeoInfo.NodeId, HGPO.PartInfo.PartId,
-		HAPI_UNREAL_ATTRIB_FACE_SMOOTHING_MASK,
-		AttribInfoFaceSmoothingMasks, PartFaceSmoothingMasks);
+	FHoudiniHapiAccessor Accessor(HGPO.GeoInfo.NodeId, HGPO.PartInfo.PartId, HAPI_UNREAL_ATTRIB_FACE_SMOOTHING_MASK);
+	Accessor.GetInfo(AttribInfoFaceSmoothingMasks);
+	bool Success = Accessor.GetAttributeData(AttribInfoFaceSmoothingMasks, PartFaceSmoothingMasks);
 
 	if (FloatData.Num() > 0)
 	{
@@ -1349,17 +1335,15 @@ void FHoudiniMeshTranslator::CopyAttributesFromHGPOForSplit(
 void FHoudiniMeshTranslator::CopyAttributesFromHGPOForSplit(
 	const FString& InSplitGroupName, TMap<FString, FString>& OutAttributes, TMap<FString, FString>& OutTokens)
 {
-	// Only Retrieve the vertices lightmap resolution if necessary
+	// Only Retrieve the vertices light map resolution if necessary
 	if (PartLightMapResolutions.Num() > 0)
 		return true;
 
-	// Get lightmap resolution (if present).
-	bool Success = FHoudiniEngineUtils::HapiGetAttributeDataAsInteger(
-		HGPO.GeoInfo.NodeId, HGPO.PartInfo.PartId,
-		HAPI_UNREAL_ATTRIB_LIGHTMAP_RESOLUTION, 
-		AttribInfoLightmapResolution, PartLightMapResolutions);
+	FHoudiniHapiAccessor Accessor(HGPO.GeoInfo.NodeId, HGPO.PartInfo.PartId, HAPI_UNREAL_ATTRIB_LIGHTMAP_RESOLUTION);
 
-	if (!Success && AttribInfoLightmapResolution.exists)
+	bool bSuccess = Accessor.GetAttributeData(HAPI_ATTROWNER_INVALID, PartLightMapResolutions);
+
+	if (!bSuccess && AttribInfoLightmapResolution.exists)
 	{
 		PointIndex = AllSplitVertexLists[InSplitGroupName][FirstValidVertexIndex];
 	}
@@ -1415,11 +1399,11 @@ FHoudiniMeshTranslator::CreateNewHoudiniStaticMesh(const FString& InSplitIdentif
 	TArray<FString> MaterialInstanceOverrides;
 	HAPI_AttributeInfo AttribInfoFaceMaterialOverrides;
 	FHoudiniApi::AttributeInfo_Init(&AttribInfoFaceMaterialOverrides);
-	
-	FHoudiniEngineUtils::HapiGetAttributeDataAsString(
-		HGPO.GeoInfo.NodeId, HGPO.PartInfo.PartId,
-		HAPI_UNREAL_ATTRIB_MATERIAL,
-		AttribInfoFaceMaterialOverrides, MaterialOverrides);
+
+	FHoudiniHapiAccessor Accessor(HGPO.GeoInfo.NodeId, HGPO.PartInfo.PartId, HAPI_UNREAL_ATTRIB_MATERIAL);
+	Accessor.GetInfo(AttribInfoFaceMaterialOverrides, HAPI_ATTROWNER_INVALID);
+	Accessor.GetAttributeData(AttribInfoFaceMaterialOverrides, MaterialOverrides);
+
 	bool bMaterialAttributeExists = AttribInfoFaceMaterialOverrides.exists;
 	HAPI_AttributeOwner MaterialAttrOwner = bMaterialAttributeExists ? AttribInfoFaceMaterialOverrides.owner : HAPI_ATTROWNER_INVALID;
 	if (bMaterialAttributeExists && MaterialAttrOwner != HAPI_ATTROWNER_DETAIL && MaterialAttrOwner != HAPI_ATTROWNER_PRIM)
@@ -1431,10 +1415,10 @@ FHoudiniMeshTranslator::CreateNewHoudiniStaticMesh(const FString& InSplitIdentif
 	}
 
 	// If material attribute and fallbacks were not found, check the material instance attribute.
-	FHoudiniEngineUtils::HapiGetAttributeDataAsString(
-		HGPO.GeoInfo.NodeId, HGPO.PartInfo.PartId,
-		HAPI_UNREAL_ATTRIB_MATERIAL_INSTANCE,
-		AttribInfoFaceMaterialOverrides, MaterialInstanceOverrides);
+	Accessor.Init(HGPO.GeoInfo.NodeId, HGPO.PartInfo.PartId, HAPI_UNREAL_ATTRIB_MATERIAL_INSTANCE);
+	Accessor.GetInfo(AttribInfoFaceMaterialOverrides, HAPI_ATTROWNER_INVALID);
+	Accessor.GetAttributeData(AttribInfoFaceMaterialOverrides, MaterialInstanceOverrides);
+
 	bool bMaterialInstanceAttributeExists = AttribInfoFaceMaterialOverrides.exists;
 	const HAPI_AttributeOwner MaterialInstanceAttrOwner = bMaterialInstanceAttributeExists ? AttribInfoFaceMaterialOverrides.owner : HAPI_ATTROWNER_INVALID;
 	if (bMaterialInstanceAttributeExists && MaterialInstanceAttrOwner != HAPI_ATTROWNER_DETAIL && MaterialInstanceAttrOwner != HAPI_ATTROWNER_PRIM)
@@ -1444,10 +1428,11 @@ FHoudiniMeshTranslator::CreateNewHoudiniStaticMesh(const FString& InSplitIdentif
 	else
 	{
 		PartFaceMaterialOverrides.Empty();
-		FHoudiniEngineUtils::HapiGetAttributeDataAsString(
-			HGPO.GeoInfo.NodeId, HGPO.PartInfo.PartId,
-			HAPI_UNREAL_ATTRIB_MATERIAL_FALLBACK,
-			AttribInfoFaceMaterialOverrides, MaterialOverrides);
+
+		Accessor.Init(HGPO.GeoInfo.NodeId, HGPO.PartInfo.PartId, HAPI_UNREAL_ATTRIB_MATERIAL_FALLBACK);
+		Accessor.GetInfo(AttribInfoFaceMaterialOverrides, HAPI_ATTROWNER_INVALID);
+		Accessor.GetAttributeData(AttribInfoFaceMaterialOverrides, MaterialOverrides);
+
 		bMaterialAttributeExists = AttribInfoFaceMaterialOverrides.exists;
 		MaterialAttrOwner = bMaterialAttributeExists ? AttribInfoFaceMaterialOverrides.owner : HAPI_ATTROWNER_INVALID;
 		if (bMaterialAttributeExists && MaterialAttrOwner != HAPI_ATTROWNER_DETAIL && MaterialAttrOwner != HAPI_ATTROWNER_PRIM)
@@ -1569,12 +1554,11 @@ FHoudiniMeshTranslator::CreateStaticMesh_RawMesh()
 			continue;
 		}
 
-	bool Success = FHoudiniEngineUtils::HapiGetAttributeDataAsFloat(
-		HGPO.GeoInfo.NodeId, HGPO.PartInfo.PartId,
-		HAPI_UNREAL_ATTRIB_LOD_SCREENSIZE,
-		AttribInfoLODScreensize, PartLODScreensize);
+	FHoudiniHapiAccessor Accessor(HGPO.GeoInfo.NodeId, HGPO.PartInfo.PartId, HAPI_UNREAL_ATTRIB_LOD_SCREENSIZE);
 
-	if (!Success && AttribInfoLODScreensize.exists)
+	bool Success = Accessor.GetAttributeData(HAPI_ATTROWNER_INVALID, PartLODScreensize);
+
+	if (!Success)
 	{
 		// Error retrieving FaceSmoothing values.
 		HOUDINI_LOG_WARNING(
@@ -1615,18 +1599,13 @@ FHoudiniMeshTranslator::CreateStaticMesh_RawMesh()
 	// Start by looking for the nanite enabled attribute, disabled by default
 	bool bEnableNanite = false;
 	TArray<int32> IntData;
-	// Look for a specific prim attribute first
-	if (!FHoudiniEngineUtils::HapiGetAttributeDataAsInteger(
-		GeoId, PartId, HAPI_UNREAL_ATTRIB_NANITE_ENABLED,
-		AttributeInfo, IntData, 1, HAPI_ATTROWNER_PRIM, PrimIndex, 1))
-	{
-		//Global search for the attribute
-		IntData.Empty();
-		FHoudiniEngineUtils::HapiGetAttributeDataAsInteger(
-			GeoId, PartId, HAPI_UNREAL_ATTRIB_NANITE_ENABLED,
-			AttributeInfo, IntData, 1, HAPI_ATTROWNER_INVALID, 0, 1);
-	}
 
+	FHoudiniHapiAccessor Accessor;
+	Accessor.Init(GeoId, PartId, HAPI_UNREAL_ATTRIB_NANITE_ENABLED);
+	if (!Accessor.GetAttributeData(HAPI_ATTROWNER_PRIM, IntData, PrimIndex, 1))
+	{
+		Accessor.GetAttributeData(HAPI_ATTROWNER_INVALID, 1, IntData, 0, 1);
+	}
 	if (IntData.Num() > 0)
 	{
 		bEnableNanite = (IntData[0] != 0);
@@ -1640,15 +1619,10 @@ FHoudiniMeshTranslator::CreateStaticMesh_RawMesh()
 			FoundOutputObject = InputObjects.Find(OutputObjectIdentifier);
 
 	// Look for a specific prim attribute first
-	if (!FHoudiniEngineUtils::HapiGetAttributeDataAsInteger(
-		GeoId, PartId, HAPI_UNREAL_ATTRIB_NANITE_POSITION_PRECISION,
-		AttributeInfo, IntData, 1, HAPI_ATTROWNER_PRIM, PrimIndex, 1))
+	Accessor.Init(GeoId, PartId, HAPI_UNREAL_ATTRIB_NANITE_POSITION_PRECISION);
+	if (!Accessor.GetAttributeData(HAPI_ATTROWNER_PRIM, IntData, PrimIndex, 1))
 	{
-		//Global search for the attribute
-		IntData.Empty();
-		FHoudiniEngineUtils::HapiGetAttributeDataAsInteger(
-			GeoId, PartId, HAPI_UNREAL_ATTRIB_NANITE_POSITION_PRECISION,
-			AttributeInfo, IntData, 1, HAPI_ATTROWNER_INVALID, 0, 1);
+		Accessor.GetAttributeData(HAPI_ATTROWNER_INVALID, 1, IntData, 0, 1);
 	}
 
 	if (IntData.Num() > 0)
@@ -1658,71 +1632,66 @@ FHoudiniMeshTranslator::CreateStaticMesh_RawMesh()
 
 	// Look for the percent triangle attribute, one by default (all triangles)
 	// as this mesh is also used in the physics engine as the complex collision version
-	StaticMesh->NaniteSettings.FallbackPercentTriangles = 1.0f;
-	
-	TArray<float> FloatData;
-	// Look for a specific prim attribute first
-	if (!FHoudiniEngineUtils::HapiGetAttributeDataAsFloat(
-		GeoId, PartId, HAPI_UNREAL_ATTRIB_NANITE_PERCENT_TRIANGLES,
-		AttributeInfo, FloatData, 1, HAPI_ATTROWNER_PRIM, PrimIndex, 1))
+
 	{
-		//Global search for the attribute
-		FHoudiniEngineUtils::HapiGetAttributeDataAsFloat(
-			GeoId, PartId, HAPI_UNREAL_ATTRIB_NANITE_PERCENT_TRIANGLES,
-			AttributeInfo, FloatData, 1, HAPI_ATTROWNER_INVALID, 0, 1);
+		StaticMesh->NaniteSettings.FallbackPercentTriangles = 1.0f;
+		TArray<float> FloatData;
+		Accessor.Init(GeoId, PartId, HAPI_UNREAL_ATTRIB_NANITE_PERCENT_TRIANGLES);
+
+		// Look for a specific prim attribute first
+		if (!Accessor.GetAttributeData(HAPI_ATTROWNER_PRIM, 1, FloatData, PrimIndex, 1))
+		{
+			//Global search for the attribute
+			Accessor.GetAttributeData(HAPI_ATTROWNER_INVALID, 1, FloatData, PrimIndex, 1);
+		}
+
+		if (FloatData.Num() > 0)
+		{
+	#if ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION >= 3
+			// If a nanite percent triangles attribute was found, we likely also want to set the fallback target to PercentTriangles
+			StaticMesh->NaniteSettings.FallbackTarget = ENaniteFallbackTarget::PercentTriangles;
+	#endif
+			StaticMesh->NaniteSettings.FallbackPercentTriangles = FMath::Clamp<float>(FloatData[0], 0.0f, 1.0f);
+		}
 	}
 
-	if (FloatData.Num() > 0)
 	{
-#if ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION >= 3
-		// If a nanite percent triangles attribute was found, we likely also want to set the fallback target to PercentTriangles
-		StaticMesh->NaniteSettings.FallbackTarget = ENaniteFallbackTarget::PercentTriangles;
-#endif
-		StaticMesh->NaniteSettings.FallbackPercentTriangles = FMath::Clamp<float>(FloatData[0], 0.0f, 1.0f);
+		// Also look for an attribute setting the relative error (default to 1)
+		StaticMesh->NaniteSettings.FallbackRelativeError = 1.0f;
+
+		TArray<float> FloatData;
+		Accessor.Init(GeoId, PartId, HAPI_UNREAL_ATTRIB_NANITE_FB_RELATIVE_ERROR);
+		if (!Accessor.GetAttributeData(HAPI_ATTROWNER_PRIM, FloatData, PrimIndex, 1))
+		{
+			//Global search for the attribute
+			Accessor.GetAttributeData(HAPI_ATTROWNER_INVALID, 1, FloatData, PrimIndex, 1);
+		}
+
+		if (FloatData.Num() > 0)
+		{
+	#if ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION >= 3
+			// If a nanite relative error attribute was found, we likely also want to set the fallback target to RelativeError
+			StaticMesh->NaniteSettings.FallbackTarget = ENaniteFallbackTarget::RelativeError;
+	#endif
+			StaticMesh->NaniteSettings.FallbackRelativeError = FMath::Clamp<float>(FloatData[0], 0.0f, 1.0f);
+		}
 	}
 
-	// Also look for an attribute setting the relative error (default to 1)
-	StaticMesh->NaniteSettings.FallbackRelativeError = 1.0f;
-
-	FloatData.Empty();
-	// Look for a specific prim attribute first
-	if (!FHoudiniEngineUtils::HapiGetAttributeDataAsFloat(
-		GeoId, PartId, HAPI_UNREAL_ATTRIB_NANITE_FB_RELATIVE_ERROR,
-		AttributeInfo, FloatData, 1, HAPI_ATTROWNER_PRIM, PrimIndex, 1))
 	{
-		//Global search for the attribute
-		FHoudiniEngineUtils::HapiGetAttributeDataAsFloat(
-			GeoId, PartId, HAPI_UNREAL_ATTRIB_NANITE_FB_RELATIVE_ERROR,
-			AttributeInfo, FloatData, 1, HAPI_ATTROWNER_INVALID, 0, 1);
-	}
+		// And do the same for the trim relative error (default to 0)
+		StaticMesh->NaniteSettings.TrimRelativeError = 0.0f;
+		TArray<float> FloatData;
+		Accessor.Init(GeoId, PartId, HAPI_UNREAL_ATTRIB_NANITE_TRIM_RELATIVE_ERROR);
+		if (!Accessor.GetAttributeData(HAPI_ATTROWNER_PRIM, FloatData, PrimIndex, 1))
+		{
+			//Global search for the attribute
+			Accessor.GetAttributeData(HAPI_ATTROWNER_INVALID, 1, FloatData, PrimIndex, 1);
+		}
 
-	if (FloatData.Num() > 0)
-	{
-#if ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION >= 3
-		// If a nanite relative error attribute was found, we likely also want to set the fallback target to RelativeError
-		StaticMesh->NaniteSettings.FallbackTarget = ENaniteFallbackTarget::RelativeError;
-#endif
-		StaticMesh->NaniteSettings.FallbackRelativeError = FMath::Clamp<float>(FloatData[0], 0.0f, 1.0f);
-	}
-
-	// And do the same for the trim relative error (default to 0)
-	StaticMesh->NaniteSettings.TrimRelativeError = 0.0f;
-
-	FloatData.Empty();
-	// Look for a specific prim attribute first
-	if (!FHoudiniEngineUtils::HapiGetAttributeDataAsFloat(
-		GeoId, PartId, HAPI_UNREAL_ATTRIB_NANITE_TRIM_RELATIVE_ERROR,
-		AttributeInfo, FloatData, 1, HAPI_ATTROWNER_PRIM, PrimIndex, 1))
-	{
-		//Global search for the attribute
-		FHoudiniEngineUtils::HapiGetAttributeDataAsFloat(
-			GeoId, PartId, HAPI_UNREAL_ATTRIB_NANITE_TRIM_RELATIVE_ERROR,
-			AttributeInfo, FloatData, 1, HAPI_ATTROWNER_INVALID, 0, 1);
-	}
-
-	if (FloatData.Num() > 0)
-	{
-		StaticMesh->NaniteSettings.TrimRelativeError = FMath::Clamp<float>(FloatData[0], 0.0f, 1.0f);
+		if (FloatData.Num() > 0)
+		{
+			StaticMesh->NaniteSettings.TrimRelativeError = FMath::Clamp<float>(FloatData[0], 0.0f, 1.0f);
+		}
 	}
 
 			bNewStaticMeshCreated = true;
@@ -5736,9 +5705,26 @@ FHoudiniMeshTranslator::GenerateKDopAsSimpleCollision(const TArray<FVector>& InP
 		FPoly*	Polygon = new(TempModel->Polys->Element) FPoly();
 		FVector3f Base, AxisX, AxisY;
 
-		Polygon->Init();
-		Polygon->Normal = planes[i];
-		Polygon->Normal.FindBestAxisVectors(AxisX, AxisY);
+			TArray<FString> AttributeValues;
+
+			FHoudiniHapiAccessor Accessor(HGPO.GeoId, HGPO.PartId, HAPI_UNREAL_ATTRIB_SIMPLE_PHYSICAL_MATERIAL);
+			Accessor.GetInfo(AttributeInfo, HAPI_ATTROWNER_PRIM);
+			AttributeInfo.tupleSize = 1;
+			bool bSuccess = Accessor.GetAttributeData(AttributeInfo, AttributeValues);
+
+			if (bSuccess && AttributeValues.Num() > 0)
+			{
+			    // Fetch the physics material name based off the first primitve attribute
+			    auto& MaterialName = AttributeValues[0];
+				if (!MaterialName.IsEmpty() && MaterialName != "None")
+				{
+					BodySetup->PhysMaterial = LoadObject<UPhysicalMaterial>(nullptr, *MaterialName, nullptr, LOAD_NoWarn, nullptr);
+					if (!BodySetup->PhysMaterial)
+					{
+						HOUDINI_LOG_HELPER(Error, TEXT("Physical Material not found: %s."), *MaterialName);
+					}
+				}
+			}
 
 		Base = planes[i] * planes[i].W;
 
@@ -7603,14 +7589,11 @@ FHoudiniMeshTranslator::CreateStaticMeshFromSplitGroups(const FString& MeshName,
 		FlushRenderingCommands();
 
 		TArray<float> LODScreenSizes;
-		HAPI_AttributeInfo AttribInfoScreenSize;
-		FHoudiniApi::AttributeInfo_Init(&AttribInfoScreenSize);
 
-		FHoudiniEngineUtils::HapiGetAttributeDataAsFloat(
-			HGPO.GeoId, HGPO.PartId, TCHAR_TO_ANSI(*LODAttributeName),
-			AttribInfoScreenSize, LODScreenSizes, 0, HAPI_ATTROWNER_DETAIL, 0, 1);
+		FHoudiniHapiAccessor Accessor(HGPO.GeoInfo.NodeId, HGPO.PartInfo.PartId, TCHAR_TO_ANSI(*LODAttributeName));
+		bool bSuccess = Accessor.GetAttributeData(HAPI_ATTROWNER_DETAIL, LODScreenSizes, 0, 1);
 
-		if (AttribInfoScreenSize.exists && LODScreenSizes.Num() > 0)
+		if (bSuccess)
 		{
 			BodySetup->AddCollisionFrom(CollisionGeometry);
 			BodySetup->CollisionTraceFlag = ECollisionTraceFlag::CTF_UseDefault;
@@ -7631,11 +7614,13 @@ FHoudiniMeshTranslator::CreateStaticMeshFromSplitGroups(const FString& MeshName,
 		OutputObject->bIsImplicit = true;
 	}
 
-		FHoudiniEngineUtils::HapiGetAttributeDataAsFloat(
-			HGPO.GeoId, HGPO.PartId, "unreal_uproperty_screensize",
-			AttribInfoScreenSize, LODScreenSizes, 0, HAPI_ATTROWNER_INVALID, 0, 1);
+		FHoudiniHapiAccessor Accessor(HGPO.GeoInfo.NodeId, HGPO.PartInfo.PartId, HAPI_UNREAL_ATTRIB_LOD_SCREENSIZE);
+		bool bSuccess = Accessor.GetInfo(AttribInfoScreenSize);
 
-		if (AttribInfoScreenSize.exists)
+		if (bSuccess)
+			Accessor.GetAttributeData(AttribInfoScreenSize, PartLODScreensize, 0, 1);
+
+		if (bSuccess && AttribInfoScreenSize.exists)
 		{
 			// it needs to recreate IF it already has been created
 			if (StaticMeshComponent->IsPhysicsStateCreated())
@@ -8592,13 +8577,14 @@ FHoudiniMeshTranslator::ProcessMaterialsForHSM(
 bool FHoudiniMeshTranslator::HasFracturePieceAttribute(const HAPI_NodeId& GeoId, const HAPI_NodeId& PartId)
 {
 	bool bHISM = false;
-	HAPI_AttributeInfo AttriInfo;
-	FHoudiniApi::AttributeInfo_Init(&AttriInfo);
 	TArray<int> IntData;
 	IntData.Empty();
 
-	if (FHoudiniEngineUtils::HapiGetAttributeDataAsInteger(GeoId, PartId,
-		HAPI_UNREAL_ATTRIB_GC_PIECE, AttriInfo, IntData, 1))
+	FHoudiniHapiAccessor Accessor(GeoId, PartId, HAPI_UNREAL_ATTRIB_GC_PIECE);
+
+	bool bSuccess = Accessor.GetAttributeData(HAPI_ATTROWNER_INVALID, IntData);
+
+	if (bSuccess)
 	{
 		if (IntData.Num() > 0)
 			bHISM = true;
@@ -9348,11 +9334,13 @@ FHoudiniMeshTranslator::SetPhysicsMaterialFromHGPO(UBodySetup* BodySetup)
 	FHoudiniApi::AttributeInfo_Init(&AttributeInfo);
 
 	TArray<FString> AttributeValues;
-	if (FHoudiniEngineUtils::HapiGetAttributeDataAsString(
-		HGPO.GeoId, HGPO.PartId,
-		HAPI_UNREAL_ATTRIB_SIMPLE_PHYSICAL_MATERIAL,
-		AttributeInfo, AttributeValues, 1, HAPI_ATTROWNER_PRIM, 0, 1) &&
-		AttributeValues.Num() > 0)
+
+	FHoudiniHapiAccessor Accessor(HGPO.GeoId, HGPO.PartId, HAPI_UNREAL_ATTRIB_SIMPLE_PHYSICAL_MATERIAL);
+	Accessor.GetInfo(AttributeInfo, HAPI_ATTROWNER_PRIM);
+	AttributeInfo.tupleSize = 1;
+	bool bSuccess = Accessor.GetAttributeData(AttributeInfo, AttributeValues, 0, 1);
+
+	if (bSuccess && AttributeValues.Num() > 0)
 	{
 		// Fetch the physics material name based off the first primitve attribute
 		auto& MaterialName = AttributeValues[0];
