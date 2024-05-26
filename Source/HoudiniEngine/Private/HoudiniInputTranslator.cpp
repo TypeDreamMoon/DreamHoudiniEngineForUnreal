@@ -76,6 +76,7 @@
 #include "Engine/SCS_Node.h"
 #include "Engine/SimpleConstructionScript.h"
 #include "FoliageType_InstancedStaticMesh.h"
+#include "HoudiniEngineAttributes.h"
 #include "HoudiniHLODLayerUtils.h"
 #include "GeometryCollection/GeometryCollection.h"
 #include "Landscape.h"
@@ -2017,8 +2018,9 @@ FHoudiniInputTranslator::HapiCreateInputNodeForObject(const FString& InObjNodeNa
 		};
 
 		// Now that we have raw positions, we can upload them for our attribute.
-		HOUDINI_CHECK_ERROR_RETURN(FHoudiniEngineUtils::HapiSetAttributeFloatData(
-			Position, InputNodeId, 0, HAPI_UNREAL_ATTRIB_POSITION, AttributeInfoPoint), false);
+		FHoudiniHapiAccessor Accessor(InputNodeId, 0, HAPI_UNREAL_ATTRIB_POSITION);
+		HOUDINI_CHECK_RETURN(Accessor.SetAttributeData(AttributeInfoPoint, Position), false);
+
 	}
 
 	{
@@ -2038,8 +2040,9 @@ FHoudiniInputTranslator::HapiCreateInputNodeForObject(const FString& InObjNodeNa
 
 		// Set the point's path attribute
 		FString ObjectPathName = Object->GetPathName();
-		HOUDINI_CHECK_ERROR_RETURN(FHoudiniEngineUtils::HapiSetAttributeStringData(
-			ObjectPathName, InputNodeId, 0, HAPI_UNREAL_ATTRIB_OBJECT_PATH, AttributeInfoPoint), false);
+
+		FHoudiniHapiAccessor Accessor(InputNodeId, 0, HAPI_UNREAL_ATTRIB_OBJECT_PATH);
+		HOUDINI_CHECK_RETURN(Accessor.SetAttributeUniqueData(AttributeInfoPoint, ObjectPathName), false);
 	}
 
 	// Commit the geo.
@@ -4489,8 +4492,9 @@ FHoudiniInputTranslator::CreateInputNodeForReference(
 		};
 
 		// Now that we have raw positions, we can upload them for our attribute.
-		HOUDINI_CHECK_ERROR_RETURN(FHoudiniEngineUtils::HapiSetAttributeFloatData(
-			Position, NewNodeId, 0, HAPI_UNREAL_ATTRIB_POSITION, AttributeInfoPoint), false);
+		FHoudiniHapiAccessor Accessor(NewNodeId, 0, HAPI_UNREAL_ATTRIB_POSITION);
+		HOUDINI_CHECK_RETURN(Accessor.SetAttributeData(AttributeInfoPoint, Position), false);
+
 	}
 
 	if (bImportAsReferenceRotScaleEnabled)
@@ -4521,8 +4525,8 @@ FHoudiniInputTranslator::CreateInputNodeForReference(
 		InputRotations[3] = (float)-InputRotation.W;
 
 		//we can now upload them to our attribute.
-		HOUDINI_CHECK_ERROR_RETURN(FHoudiniEngineUtils::HapiSetAttributeFloatData(
-			InputRotations, NewNodeId, 0, HAPI_UNREAL_ATTRIB_ROTATION, AttributeInfoRotation), false);
+		FHoudiniHapiAccessor Accessor(NewNodeId, 0, HAPI_UNREAL_ATTRIB_ROTATION);
+		HOUDINI_CHECK_RETURN(Accessor.SetAttributeData(AttributeInfoRotation, InputRotations), false);
 
 		// Create SCALE attribute info
 		HAPI_AttributeInfo AttributeInfoScale;
@@ -4549,8 +4553,9 @@ FHoudiniInputTranslator::CreateInputNodeForReference(
 		InputScales[2] = InputScale.Y;
 
 		//we can now upload them to our attribute.
-		HOUDINI_CHECK_ERROR_RETURN(FHoudiniEngineUtils::HapiSetAttributeFloatData(
-			InputScales, NewNodeId, 0, HAPI_UNREAL_ATTRIB_SCALE, AttributeInfoScale), false);
+		Accessor.Init(NewNodeId, 0, HAPI_UNREAL_ATTRIB_SCALE);
+		HOUDINI_CHECK_RETURN(Accessor.SetAttributeData(AttributeInfoScale, InputScales), false);
+
 	}
 
 	if (bImportAsReferenceBboxEnabled)
@@ -4578,8 +4583,8 @@ FHoudiniInputTranslator::CreateInputNodeForReference(
 			InBboxMin.Y / HAPI_UNREAL_SCALE_FACTOR_POSITION
 		};
 
-		HOUDINI_CHECK_ERROR_RETURN(FHoudiniEngineUtils::HapiSetAttributeFloatData(
-			BboxMin, NewNodeId, 0, HAPI_UNREAL_ATTRIB_BBOX_MIN, AttributeInfoBboxPoint), false);
+		FHoudiniHapiAccessor Accessor(NewNodeId, 0, HAPI_UNREAL_ATTRIB_BBOX_MIN);
+		HOUDINI_CHECK_RETURN(Accessor.SetAttributeData(AttributeInfoBboxPoint, BboxMin), false);
 
 		// bbox max
 		HOUDINI_CHECK_ERROR_RETURN(FHoudiniApi::AddAttribute(
@@ -4594,8 +4599,8 @@ FHoudiniInputTranslator::CreateInputNodeForReference(
 			InBboxMax.Y / HAPI_UNREAL_SCALE_FACTOR_POSITION
 		};
 
-		HOUDINI_CHECK_ERROR_RETURN(FHoudiniEngineUtils::HapiSetAttributeFloatData(
-			BboxMax, NewNodeId, 0, HAPI_UNREAL_ATTRIB_BBOX_MAX, AttributeInfoBboxPoint), false);
+		Accessor.Init(NewNodeId, 0, HAPI_UNREAL_ATTRIB_BBOX_MAX);
+		HOUDINI_CHECK_RETURN(Accessor.SetAttributeData(AttributeInfoBboxPoint, BboxMax), false);
 	}
 
 	// Material Reference String Array Attribute
@@ -4623,8 +4628,8 @@ FHoudiniInputTranslator::CreateInputNodeForReference(
 				FHoudiniEngine::Get().GetSession(), NewNodeId, 0,
 				TCHAR_TO_ANSI(*AttributeName), &AttributeInfoPoint), false);
 
-			HOUDINI_CHECK_ERROR_RETURN(FHoudiniEngineUtils::HapiSetAttributeStringData(
-				MaterialReferences[i], NewNodeId, 0, TCHAR_TO_ANSI(*AttributeName), AttributeInfoPoint), false);
+			FHoudiniHapiAccessor Accessor(NewNodeId, 0, TCHAR_TO_ANSI(*AttributeName));
+			HOUDINI_CHECK_RETURN(Accessor.SetAttributeUniqueData(AttributeInfoPoint, MaterialReferences[i]), false);
 		}
 	}
 
@@ -4645,8 +4650,8 @@ FHoudiniInputTranslator::CreateInputNodeForReference(
 			FHoudiniEngine::Get().GetSession(), NewNodeId, 0,
 			HAPI_UNREAL_ATTRIB_INSTANCE_OVERRIDE, &AttributeInfoPoint), false);
 
-		HOUDINI_CHECK_ERROR_RETURN(FHoudiniEngineUtils::HapiSetAttributeStringData(
-			InRef, NewNodeId, 0, HAPI_UNREAL_ATTRIB_INSTANCE_OVERRIDE, AttributeInfoPoint), false);
+		FHoudiniHapiAccessor Accessor(NewNodeId, 0, HAPI_UNREAL_ATTRIB_INSTANCE_OVERRIDE);
+		HOUDINI_CHECK_RETURN(Accessor.SetAttributeUniqueData(AttributeInfoPoint, InRef), false);
 	}
 
 	// Commit the geo.
