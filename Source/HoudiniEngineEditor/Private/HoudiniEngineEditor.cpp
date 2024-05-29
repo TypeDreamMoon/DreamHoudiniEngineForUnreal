@@ -1367,7 +1367,11 @@ FHoudiniEngineEditor::GetLevelViewportContextMenuExtender(const TSharedRef<FUICo
 		if (!IsValid(HoudiniAssetComponent))
 			continue;
 
-		HoudiniAssets.AddUnique(HoudiniAssetComponent->GetHoudiniAsset());
+		UHoudiniAsset* HoudiniAsset = HoudiniAssetComponent->GetHoudiniAsset();
+		if (!IsValid(HoudiniAsset))
+			continue;
+
+		HoudiniAssets.AddUnique(HoudiniAsset);
 	}
 
 	if (HoudiniAssets.Num() > 0)

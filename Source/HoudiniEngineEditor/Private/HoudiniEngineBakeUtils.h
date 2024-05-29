@@ -102,7 +102,7 @@ enum class EHoudiniInstancerComponentType : uint8
 	FoliageInstancedStaticMeshComponent,
 	// Baking foliage as HISMC
 	FoliageAsHierarchicalInstancedStaticMeshComponent,
-	GeoemtryCollectionComponent
+	GeometryCollectionComponent
 };
 
 // Helper struct to track actors created/used when baking, with
@@ -726,7 +726,6 @@ public:
 		USkeletalMeshComponent* InSKC,
 		bool bInCopyWorldTransform = false);
 
-
 	// Function used to copy properties from the source GeometryCollection Component to the new (baked) one
 	static void CopyPropertyToNewGeometryCollectionActorAndComponent(
 		AGeometryCollectionActor* NewActor,
@@ -807,6 +806,9 @@ public:
 	// Helper function for renaming and relabelling an actor
 	static void RenameAndRelabelActor(AActor* InActor, const FString& InNewName, bool bMakeUniqueIfNotUnique=true);
 	
+	// Helper function for duplicating Static Meshes
+	//static UStaticMesh* DuplicateStaticMesh(UStaticMesh* SourceStaticMesh, UObject* Outer, const FName Name);
+
 	// Start: PDG Baking
 
 	// Detach InActor from its parent, and rename to InNewName (attaches a numeric suffix to make it unique via
