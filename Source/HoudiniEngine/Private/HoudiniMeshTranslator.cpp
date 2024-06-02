@@ -771,7 +771,7 @@ FHoudiniMeshTranslator::CreateStaticMeshFromHoudiniGeoPartObject(
 bool
 FHoudiniMeshTranslator::UpdatePartAlphasIfNeeded()
 {
-	TRACE_CPUPROFILER_EVENT_SCOPE(TEXT("FHoudiniMeshTranslator::UpdatePartAlphasIfNeeded"));
+	TRACE_CPUPROFILER_EVENT_SCOPE(FHoudiniMeshTranslator::UpdatePartVertexList);
 
 	// Only Retrieve the vertices alphas if necessary
 	if (PartAlphas.Num() > 0)
@@ -796,9 +796,15 @@ FHoudiniMeshTranslator::UpdatePartAlphasIfNeeded()
 bool
 FHoudiniMeshTranslator::UpdatePartFaceSmoothingIfNeeded()
 {
-	// Only Retrieve the vertices FaceSmoothing if necessary
-	if (PartFaceSmoothingMasks.Num() > 0)
-		return true;
+	TRACE_CPUPROFILER_EVENT_SCOPE(FHoudiniMeshTranslator::SortSplitGroups);
+
+	// Sort the splits in the order that we want to process them:
+	// Simple/Convex invisible colliders should be treated first as they will need to be attached to the visible meshes
+	TArray<FString> First;
+	
+	// The main geo and its LODs should be created after.
+	TArray<FString> Main;
+	TArray<FString> LODs;
 
 	bool Success = FHoudiniEngineUtils::HapiGetAttributeDataAsInteger(
 		HGPO.GeoInfo.NodeId, HGPO.PartInfo.PartId,
@@ -855,7 +861,7 @@ FHoudiniMeshTranslator::UpdatePartLightmapResolutionsIfNeeded()
 bool
 FHoudiniMeshTranslator::UpdatePartFaceMaterialIDsIfNeeded()
 {
-	TRACE_CPUPROFILER_EVENT_SCOPE(TEXT("FHoudiniMeshTranslator::UpdatePartFaceMaterialIDsIfNeeded"));
+	TRACE_CPUPROFILER_EVENT_SCOPE(FHoudiniMeshTranslator::UpdateSplitsFacesAndIndices);
 
 	// Only Retrieve the material IDs if necessary
 	if (PartFaceMaterialIds.Num() > 0)
@@ -1062,7 +1068,15 @@ FHoudiniMeshTranslator::UpdatePartFaceMaterialIDsIfNeeded()
 bool
 FHoudiniMeshTranslator::UpdatePartNeededMaterials()
 {
-	TRACE_CPUPROFILER_EVENT_SCOPE(TEXT("FHoudiniMeshTranslator::UpdatePartNeededMaterials"));
+	TRACE_CPUPROFILER_EVENT_SCOPE(FHoudiniMeshTranslator::ResetPartCache);
+
+	// Vertex Positions
+	PartPositions.Empty();
+	FHoudiniApi::AttributeInfo_Init(&AttribInfoPositions);
+
+	// Vertex Normals
+	PartNormals.Empty();
+	FHoudiniApi::AttributeInfo_Init(&AttribInfoNormals);
 
 	// Update the per face material IDs
 	UpdatePartFaceMaterialIDsIfNeeded();
@@ -1132,7 +1146,7 @@ FHoudiniMeshTranslator::UpdatePartNeededMaterials()
 bool
 FHoudiniMeshTranslator::UpdatePartPositionIfNeeded()
 {
-	TRACE_CPUPROFILER_EVENT_SCOPE(TEXT("FHoudiniMeshTranslator::UpdatePartPositionIfNeeded"));
+	TRACE_CPUPROFILER_EVENT_SCOPE(FHoudiniMeshTranslator::UpdatePartPositionIfNeeded);
 
 	// Only Retrieve the vertices positions if necessary
 	if (PartPositions.Num() > 0)
@@ -1169,8 +1183,16 @@ FHoudiniMeshTranslator::UpdatePartPositionIfNeeded()
 bool
 FHoudiniMeshTranslator::UpdatePartLODScreensizeIfNeeded()
 {
-	// Only retrieve LOD screensizes if necessary
-	if (PartLODScreensize.Num() > 0)
+	TRACE_CPUPROFILER_EVENT_SCOPE(FHoudiniMeshTranslator::UpdatePartNormalsIfNeeded);
+
+	// No need to read the normals if we want unreal to recompute them after
+	const UHoudiniRuntimeSettings* HoudiniRuntimeSettings = GetDefault<UHoudiniRuntimeSettings>();
+	bool bReadNormals = HoudiniRuntimeSettings ? HoudiniRuntimeSettings->RecomputeNormalsFlag != EHoudiniRuntimeSettingsRecomputeFlag::HRSRF_Always : true;
+	if (!bReadNormals)
+		return true;
+
+	// Only Retrieve the normals if we haven't already
+	if (PartNormals.Num() > 0)
 		return true;
 
 	FHoudiniHapiAccessor Accessor(HGPO.GeoInfo.NodeId, HGPO.PartInfo.PartId, HAPI_UNREAL_ATTRIB_NORMAL);
@@ -1198,8 +1220,7 @@ FHoudiniMeshTranslator::UpdatePartLODScreensizeIfNeeded()
 void
 FHoudiniMeshTranslator::UpdateStaticMeshNaniteSettings(const int32& GeoId, const int32& PartId, const int32& PrimIndex, UStaticMesh* StaticMesh)
 {
-	if (!StaticMesh)
-		return;
+	TRACE_CPUPROFILER_EVENT_SCOPE(FHoudiniMeshTranslator::UpdatePartTangentsIfNeeded);
 
 	// 
 	HAPI_AttributeInfo AttributeInfo;
@@ -1244,9 +1265,17 @@ FHoudiniMeshTranslator::UpdateStaticMeshNaniteSettings(const int32& GeoId, const
 		}
 	}
 
-	// Then look for the position precision attribute, auto by default (MIN_int32)
-	IntData.Empty();
-	StaticMesh->NaniteSettings.PositionPrecision = MIN_int32;
+	return bReturn;
+}
+
+bool
+FHoudiniMeshTranslator::UpdatePartColorsIfNeeded()
+{
+	TRACE_CPUPROFILER_EVENT_SCOPE(FHoudiniMeshTranslator::UpdatePartColorsIfNeeded);
+
+	// Only Retrieve the vertices colors if necessary
+	if (PartColors.Num() > 0)
+		return true;
 
 	FHoudiniHapiAccessor Accessor(HGPO.GeoInfo.NodeId, HGPO.PartInfo.PartId, HAPI_UNREAL_ATTRIB_COLOR);
 	Accessor.GetInfo(AttribInfoColors);
@@ -1273,10 +1302,10 @@ FHoudiniMeshTranslator::UpdateStaticMeshNaniteSettings(const int32& GeoId, const
 			AttributeInfo, FloatData, 1, HAPI_ATTROWNER_INVALID, 0, 1);
 	}
 
-	if (FloatData.Num() > 0)
-	{
-		StaticMesh->NaniteSettings.FallbackPercentTriangles = FMath::Clamp<float>(FloatData[0], 0.0f, 1.0f);
-	}
+bool
+FHoudiniMeshTranslator::UpdatePartAlphasIfNeeded()
+{
+	TRACE_CPUPROFILER_EVENT_SCOPE(FHoudiniMeshTranslator::UpdatePartAlphasIfNeeded);
 
 	// Also look for an attribute setting the relative error (default to 1)
 	StaticMesh->NaniteSettings.FallbackRelativeError = 1.0f;
@@ -1315,7 +1344,7 @@ FHoudiniMeshTranslator::UpdatePartFaceSmoothingIfNeeded()
 void FHoudiniMeshTranslator::CopyAttributesFromHGPOForSplit(
 	const FHoudiniGeoPartObject& InHGPO, const int32 InPointIndex, const int32 InPrimIndex, TMap<FString, FString>& OutAttributes, TMap<FString, FString>& OutTokens)
 {
-	TRACE_CPUPROFILER_EVENT_SCOPE(TEXT("FHoudiniMeshTranslator::UpdatePartUVSetsIfNeeded"));
+	TRACE_CPUPROFILER_EVENT_SCOPE(FHoudiniMeshTranslator::UpdatePartUVSetsIfNeeded);
 
 	FHoudiniEngineUtils::UpdateMeshPartUVSets(HGPO.GeoId, HGPO.PartId, bRemoveUnused, PartUVSets, AttribInfoUVSets);
 
@@ -1354,8 +1383,11 @@ void FHoudiniMeshTranslator::CopyAttributesFromHGPOForSplit(
 void FHoudiniMeshTranslator::CopyAttributesFromHGPOForSplit(
 	const FHoudiniOutputObjectIdentifier& InOutputObjectIdentifier, TMap<FString, FString>& OutAttributes, TMap<FString, FString>& OutTokens)
 {
-	const int32 PrimIndex = InOutputObjectIdentifier.PrimitiveIndex;
-	const int32 PointIndex = InOutputObjectIdentifier.PointIndex;
+	TRACE_CPUPROFILER_EVENT_SCOPE(FHoudiniMeshTranslator::UpdatePartFaceMaterialIDsIfNeeded);
+
+	// Only Retrieve the material IDs if necessary
+	if (PartFaceMaterialIds.Num() > 0)
+		return true;
 
 	CopyAttributesFromHGPOForSplit(HGPO, PointIndex, PrimIndex, OutAttributes, OutTokens);
 }
@@ -1380,13 +1412,7 @@ FHoudiniMeshTranslator::CreateNewUnrealStaticMesh(const FString& InSplitIdentifi
 UHoudiniStaticMesh*
 FHoudiniMeshTranslator::CreateNewHoudiniStaticMesh(const FString& InSplitIdentifier)
 {
-	// Update the current Obj/Geo/Part/Split IDs
-	PackageParams.ObjectId = HGPO.ObjectId;
-	PackageParams.GeoId = HGPO.GeoId;
-	PackageParams.PartId = HGPO.PartId;
-	// Add _HSM suffix to the split str, to distinguish the temporary HoudiniStaticMesh
-	// from the UStaticMesh
-	PackageParams.SplitStr = InSplitIdentifier + "_HSM";
+	TRACE_CPUPROFILER_EVENT_SCOPE(FHoudiniMeshTranslator::UpdatePartFaceMaterialOverridesIfNeeded);
 
 	UHoudiniStaticMesh * NewStaticMesh = PackageParams.CreateObjectAndPackage<UHoudiniStaticMesh>();
 	if (!IsValid(NewStaticMesh))
@@ -1526,12 +1552,10 @@ FHoudiniMeshTranslator::CreateStaticMesh_RawMesh()
 	// New mesh list
 	TMap<FHoudiniOutputObjectIdentifier, UStaticMesh*> StaticMeshToBuild;
 
-	// Map of Houdini Material IDs to Unreal Material Interface
-	TMap<HAPI_NodeId, UMaterialInterface*> MapHoudiniMatIdToUnrealInterface;
-	// Map of Houdini Material Attributes to Unreal Material Interface
-	TMap<FHoudiniMaterialIdentifier, UMaterialInterface*> MapHoudiniMatAttributesToUnrealInterface;
-	// Map of Unreal Material Interface to Unreal Material Index, per visible mesh
-	TMap<UStaticMesh*, TMap<UMaterialInterface*, int32>> MapUnrealMaterialInterfaceToUnrealIndexPerMesh;
+bool
+FHoudiniMeshTranslator::UpdatePartNeededMaterials()
+{
+	TRACE_CPUPROFILER_EVENT_SCOPE(FHoudiniMeshTranslator::UpdatePartNeededMaterials);
 
 	// bool MeshMaterialsHaveBeenReset = false;
 
@@ -1542,8 +1566,11 @@ FHoudiniMeshTranslator::CreateStaticMesh_RawMesh()
 		// Get valid count of vertex indices for this split.
 		const int32& SplitVertexCount = AllSplitVertexCounts[SplitGroupName];
 
-		// Make sure we have a valid vertex count for this split
-		if (SplitVertexCount % 3 != 0 || SplitVertexList.Num() % 3 != 0)
+	{
+		TRACE_CPUPROFILER_EVENT_SCOPE(FHoudiniMeshTranslator::UpdatePartNeededMaterials - Get the unique material infos);
+		// Get the unique material infos
+		PartUniqueMaterialInfos.SetNum(PartUniqueMaterialIds.Num());
+		for (int32 MaterialIdx = 0; MaterialIdx < PartUniqueMaterialIds.Num(); MaterialIdx++)
 		{
 			// Invalid vertex count, skip this split or we'd crash trying to create a mesh for it.
 			HOUDINI_LOG_WARNING(
@@ -3307,7 +3334,7 @@ FHoudiniMeshTranslator::CreateHoudiniStaticMesh()
 
 	bDoTiming = CVarHoudiniEngineMeshBuildTimer.GetValueOnAnyThread() != 0.0;
 
-	TRACE_CPUPROFILER_EVENT_SCOPE(TEXT("FHoudiniMeshTranslator::CreateHoudiniStaticMesh"));
+	TRACE_CPUPROFILER_EVENT_SCOPE(FHoudiniMeshTranslator::CreateHoudiniStaticMesh);
 
 	const double time_start = FPlatformTime::Seconds();
 
@@ -3376,7 +3403,7 @@ FHoudiniMeshTranslator::CreateHoudiniStaticMesh()
 	bool bMainGeoOrFirstLODFound = false;
 	for (int32 SplitId = 0; SplitId < AllSplitGroups.Num(); SplitId++)
 	{
-		TRACE_CPUPROFILER_EVENT_SCOPE(TEXT("FHoudiniMeshTranslator::CreateHoudiniStaticMesh -- Per Split"));
+		TRACE_CPUPROFILER_EVENT_SCOPE(FHoudiniMeshTranslator::CreateHoudiniStaticMesh -- Per Split);
 
 		// Get split group name
 		const FString& SplitGroupName = AllSplitGroups[SplitId];
@@ -3604,7 +3631,7 @@ FHoudiniMeshTranslator::CreateHoudiniStaticMesh()
 			TriangleIndices.Reserve(SplitVertexList.Num());
 
 			{
-				TRACE_CPUPROFILER_EVENT_SCOPE(TEXT("FHoudiniMeshTranslator::CreateHoudiniStaticMesh -- Build IndicesMapper and NeededVertices"));
+				TRACE_CPUPROFILER_EVENT_SCOPE(FHoudiniMeshTranslator::CreateHoudiniStaticMesh -- Build IndicesMapper and NeededVertices);
 
 				bool bHasInvalidFaceIndices = false;
 				int32 ValidVertexId = 0;
@@ -3814,7 +3841,7 @@ FHoudiniMeshTranslator::CreateHoudiniStaticMesh()
 			// needed by the current split.
 			//
 			{
-				TRACE_CPUPROFILER_EVENT_SCOPE(TEXT("FHoudiniMeshTranslator::CreateHoudiniStaticMesh -- Set Vertex Positions"));
+				TRACE_CPUPROFILER_EVENT_SCOPE(FHoudiniMeshTranslator::CreateHoudiniStaticMesh -- Set Vertex Positions);
 
 				bool bHasInvalidPositionIndexData = false;
 				for (int32 VertexPositionIdx = 0; VertexPositionIdx < NumVertexPositions; ++VertexPositionIdx)
@@ -3851,7 +3878,7 @@ FHoudiniMeshTranslator::CreateHoudiniStaticMesh()
 			//---------------------------------------------------------------------------------------------------------------------
 
 			{
-				TRACE_CPUPROFILER_EVENT_SCOPE(TEXT("FHoudiniMeshTranslator::CreateHoudiniStaticMesh -- Set Triangle Indices & Per Vertex Instance Attribute Values"));
+				TRACE_CPUPROFILER_EVENT_SCOPE(FHoudiniMeshTranslator::CreateHoudiniStaticMesh -- Set Triangle Indices & Per Vertex Instance Attribute Values);
 
 				// Now add the triangles to the mesh
 				for (int32 TriangleIdx = 0; TriangleIdx < NumTriangles; ++TriangleIdx)
@@ -6683,7 +6710,10 @@ void FHoudiniMeshTranslator::ProcessMaterials(UStaticMesh* FoundStaticMesh, FHou
 		// If we have material overrides
 		for (int32 FaceIdx = 0; FaceIdx < SplitGroupFaceIndices.Num(); ++FaceIdx)
 		{
-			int32 SplitFaceIndex = SplitGroupFaceIndices[FaceIdx];
+			TRACE_CPUPROFILER_EVENT_SCOPE(FHoudiniMeshTranslator::CreateHoudiniStaticMesh -- Set Per Face Material Overrides);
+
+			// Array used to avoid constantly attempting to load invalid materials
+			TArray<FHoudiniMaterialIdentifier> InvalidMaterials;
 
 			UMaterialInterface* MaterialInterface = nullptr;
 			int32 CurrentFaceMaterialIdx = -1;
@@ -6736,11 +6766,141 @@ void FHoudiniMeshTranslator::ProcessMaterials(UStaticMesh* FoundStaticMesh, FHou
 						MapHoudiniMatAttributesToUnrealInterface.Add(MaterialIdentifier, MaterialInterface);
 					}
 				}
+			}
+		}
+		else if (PartUniqueMaterialIds.Num() > 0)
+		{
+			// The part has houdini materials
+			if (bOnlyOneFaceMaterial)
+			{
+				TRACE_CPUPROFILER_EVENT_SCOPE(FHoudiniMeshTranslator::CreateHoudiniStaticMesh -- Set Single Material);
+
+				// Use default Houdini material if no valid material is assigned to any of the faces.
+				UMaterialInterface * MaterialInterface = Cast<UMaterialInterface>(FHoudiniEngine::Get().GetHoudiniDefaultMaterial(HGPO.bIsTemplated).Get());
+
+				// Get id of this single material.
+				FString MaterialPathName = HAPI_UNREAL_DEFAULT_MATERIAL_NAME;
+				const bool bFoundHoudiniMaterial = FHoudiniMaterialTranslator::GetMaterialRelativePath(HGPO.AssetId, PartFaceMaterialIds[0], MaterialPathName);
+				const FHoudiniMaterialIdentifier DefaultMatIdentifier(MaterialPathName, bFoundHoudiniMaterial);
+				UMaterialInterface * const * FoundMaterial = OutputAssignmentMaterials.Find(DefaultMatIdentifier);
+				if (FoundMaterial)
+					MaterialInterface = *FoundMaterial;
+
+				// See if we have a replacement material and use it on the mesh instead
+				UMaterialInterface * const * ReplacementMaterial = ReplacementMaterials.Find(DefaultMatIdentifier);
+				if (ReplacementMaterial && *ReplacementMaterial)
+					MaterialInterface = *ReplacementMaterial;
+
+				FoundStaticMaterials.Empty();
+				FoundStaticMaterials.Add(FStaticMaterial(MaterialInterface));
+			}
+			else
+			{
+				TRACE_CPUPROFILER_EVENT_SCOPE(FHoudiniMeshTranslator::CreateHoudiniStaticMesh -- Set Per Face Materials);
+
+				// We have multiple houdini materials
+				// Get default Houdini material.
+				UMaterial * DefaultMaterial = FHoudiniEngine::Get().GetHoudiniDefaultMaterial(HGPO.bIsTemplated).Get();
 
 				if (!MaterialInterface)
 				{
-					// The attribute Material or its replacement do not exist
-					// See if we can fallback to the Houdini material assigned on the face
+					int32 SplitFaceIndex = SplitFaceIndices[FaceIdx];
+					if (!PartFaceMaterialIds.IsValidIndex(SplitFaceIndex))
+						continue;
+
+					// Get material id for this face.
+					HAPI_NodeId MaterialId = PartFaceMaterialIds[SplitFaceIndex];
+
+					// See if we have already treated that material
+					UMaterialInterface** FoundMaterialInterface = MapHoudiniMatIdToUnrealInterface.Find(MaterialId);
+					UMaterialInterface* MaterialInterface = nullptr;
+					if (FoundMaterialInterface)
+						MaterialInterface = *FoundMaterialInterface;
+
+					if (MaterialInterface)
+					{
+						int32 const * FoundUnrealMatIndex = MapUnrealMaterialInterfaceToUnrealMaterialIndexThisMesh.Find(MaterialInterface);
+						if (FoundUnrealMatIndex)
+						{
+							// This material has been mapped already, just assign the mat index
+							FoundStaticMesh->SetTriangleMaterialID(FaceIdx, *FoundUnrealMatIndex);
+							continue;
+						}
+					}
+					else
+					{
+						MaterialInterface = Cast<UMaterialInterface>(DefaultMaterial);
+
+						FString MaterialPathName = HAPI_UNREAL_DEFAULT_MATERIAL_NAME;
+						const bool bFoundHoudiniMaterial = FHoudiniMaterialTranslator::GetMaterialRelativePath(HGPO.AssetId, MaterialId, MaterialPathName);
+						const FHoudiniMaterialIdentifier DefaultMatIdentifier(MaterialPathName, bFoundHoudiniMaterial);
+						UMaterialInterface * const * FoundMaterial = OutputAssignmentMaterials.Find(DefaultMatIdentifier);
+						if (FoundMaterial)
+							MaterialInterface = *FoundMaterial;
+
+						// See if we have a replacement material and use it on the mesh instead
+						UMaterialInterface * const * ReplacementMaterial = ReplacementMaterials.Find(DefaultMatIdentifier);
+						if (ReplacementMaterial && *ReplacementMaterial)
+							MaterialInterface = *ReplacementMaterial;
+
+						// Map the houdini ID to the unreal one
+						MapHoudiniMatIdToUnrealInterface.Add(MaterialId, MaterialInterface);
+					}
+
+					if (MaterialInterface)
+					{
+						// Add the material to the Static mesh
+						int32 UnrealMatIndex = FoundStaticMaterials.Add(FStaticMaterial(MaterialInterface));
+
+						// Map the houdini ID to the unreal one
+						MapUnrealMaterialInterfaceToUnrealMaterialIndexThisMesh.Add(MaterialInterface, UnrealMatIndex);
+						
+						// Update the face index
+						FoundStaticMesh->SetTriangleMaterialID(FaceIdx, UnrealMatIndex);
+					}
+				}
+			}
+		}
+		else
+		{
+			TRACE_CPUPROFILER_EVENT_SCOPE(FHoudiniMeshTranslator::CreateHoudiniStaticMesh -- Set Default Material);
+		
+			// No materials were found, we need to use default Houdini material.
+			UMaterialInterface * MaterialInterface = Cast<UMaterialInterface>(FHoudiniEngine::Get().GetHoudiniDefaultMaterial(HGPO.bIsTemplated).Get());
+
+			// See if we have a replacement material and use it on the mesh instead
+			UMaterialInterface * const * ReplacementMaterial = ReplacementMaterials.Find(
+				FHoudiniMaterialIdentifier(HAPI_UNREAL_DEFAULT_MATERIAL_NAME, false, ""));
+			if (ReplacementMaterial && *ReplacementMaterial)
+				MaterialInterface = *ReplacementMaterial;
+
+			FoundStaticMaterials.Empty();
+			FoundStaticMaterials.Add(FStaticMaterial(MaterialInterface));
+		}
+
+		//// Update property attributes on the mesh
+		//TArray<FHoudiniGenericAttribute> PropertyAttributes;
+		//if (GetGenericPropertiesAttributes(
+		//	HGPO.GeoId, HGPO.PartId,
+		//	AllSplitFirstValidVertexIndex[SplitGroupName],
+		//	AllSplitFirstValidPrimIndex[SplitGroupName],
+		//	PropertyAttributes))
+		//{
+		//	UpdateGenericPropertiesAttributes(
+		//		FoundStaticMesh, PropertyAttributes);
+		//}
+
+		FoundStaticMesh->Optimize();
+
+		// Check if the mesh is valid (check all the counts (vertex, triangles, vertex instances, UVs etc) but skip
+		// looping over each individual triangle vertex index to check if the value is valid).
+		const bool bSkipVertexIndicesCheck = true;
+		if (!FoundStaticMesh->IsValid(bSkipVertexIndicesCheck))
+		{
+			HOUDINI_LOG_WARNING(
+				TEXT("[CreateHoudiniStaticMesh]: Invalid StaticMesh data for %s in cook output! Please check the log."),
+				*FoundStaticMesh->GetName());
+		}
 
 					// Get the unreal material corresponding to this houdini one
 					HAPI_NodeId MaterialId = PartFaceMaterialIds[SplitFaceIndex];
@@ -6787,8 +6947,15 @@ void FHoudiniMeshTranslator::ProcessMaterials(UStaticMesh* FoundStaticMesh, FHou
 
 void FHoudiniMeshTranslator::PullMeshData(FHoudiniGroupedMeshPrimitives& SplitMeshData, UStaticMesh* FoundStaticMesh, int LODIndex, bool bReadTangents)
 {
-	auto tick = FPlatformTime::Seconds();
-	const UHoudiniRuntimeSettings* HoudiniRuntimeSettings = GetDefault<UHoudiniRuntimeSettings>();
+	TRACE_CPUPROFILER_EVENT_SCOPE(FHoudiniMeshTranslator::CreateNeededMaterials);
+
+	UpdatePartNeededMaterials();
+
+	// Update package params with resolved attributes
+	TMap<FString, FString> Attributes;
+	TMap<FString, FString> Tokens;
+	FHoudiniAttributeResolver Resolver;
+	FHoudiniPackageParams FinalPackageParams;
 
 	// Mesh description uses material to create its PolygonGroups,
 	// so we first need to know how many different materials we have for this split
@@ -7370,7 +7537,7 @@ FHoudiniMeshTranslator::CreateStaticMesh(const FString & MeshName, int NumLODs)
 bool
 FHoudiniMeshTranslator::CreateStaticMeshesFromSplitGroups()
 {
-	RemovePreviousOutputs();
+	TRACE_CPUPROFILER_EVENT_SCOPE(FHoudiniMeshTranslator::TransferPartAttributesToSplit);
 
 	//-----------------------------------------------------------------------------------------------------------------------------------------------
 	// Pull various settings before creating the mesh
@@ -10056,7 +10223,7 @@ FHoudiniMeshTranslator::CreateHoudiniStaticMeshFromSplitGroups(const FString& Me
 {
 	double tick = FPlatformTime::Seconds();
 
-	TRACE_CPUPROFILER_EVENT_SCOPE(TEXT("FHoudiniMeshTranslator::CreateHoudiniStaticMeshFromSplitGroups -- Per Split"));
+	TRACE_CPUPROFILER_EVENT_SCOPE(FHoudiniMeshTranslator::CreateHoudiniStaticMeshFromSplitGroups -- Per Split);
 
 	// Houdini Static Meshes only create a mesh for the top LOD.
 	if (SplitMeshData.LODRenders.Num() == 0)
@@ -10229,7 +10396,7 @@ void FHoudiniMeshTranslator::BuildHoudiniMesh(const FString& SplitGroupName, UHo
 
 	// WONWON
 
-	TRACE_CPUPROFILER_EVENT_SCOPE(TEXT("FHoudiniMeshTranslator::CreateHoudiniStaticMesh -- Build/Rebuild UHoudiniStaticMesh"));
+	TRACE_CPUPROFILER_EVENT_SCOPE(FHoudiniMeshTranslator::CreateHoudiniStaticMesh -- Build/Rebuild UHoudiniStaticMesh);
 
 	//--------------------------------------------------------------------------------------------------------------------- 
 	//  INDICES
@@ -10263,7 +10430,7 @@ void FHoudiniMeshTranslator::BuildHoudiniMesh(const FString& SplitGroupName, UHo
 	TriangleIndices.Reserve(SplitVertexList.Num());
 
 	{
-		TRACE_CPUPROFILER_EVENT_SCOPE(TEXT("FHoudiniMeshTranslator::CreateHoudiniStaticMesh -- Build IndicesMapper and NeededVertices"));
+		TRACE_CPUPROFILER_EVENT_SCOPE(FHoudiniMeshTranslator::CreateHoudiniStaticMesh -- Build IndicesMapper and NeededVertices);
 
 		bool bHasInvalidFaceIndices = false;
 		int32 ValidVertexId = 0;
@@ -10482,7 +10649,7 @@ void FHoudiniMeshTranslator::BuildHoudiniMesh(const FString& SplitGroupName, UHo
 	// needed by the current split.
 	//
 	{
-		TRACE_CPUPROFILER_EVENT_SCOPE(TEXT("FHoudiniMeshTranslator::CreateHoudiniStaticMesh -- Set Vertex Positions"));
+		TRACE_CPUPROFILER_EVENT_SCOPE(FHoudiniMeshTranslator::CreateHoudiniStaticMesh -- Set Vertex Positions);
 
 		bool bHasInvalidPositionIndexData = false;
 		for (int32 VertexPositionIdx = 0; VertexPositionIdx < NumVertexPositions; ++VertexPositionIdx)
@@ -10519,7 +10686,7 @@ void FHoudiniMeshTranslator::BuildHoudiniMesh(const FString& SplitGroupName, UHo
 	//---------------------------------------------------------------------------------------------------------------------
 
 	{
-		TRACE_CPUPROFILER_EVENT_SCOPE(TEXT("FHoudiniMeshTranslator::CreateHoudiniStaticMesh -- Set Triangle Indices & Per Vertex Instance Attribute Values"));
+		TRACE_CPUPROFILER_EVENT_SCOPE(FHoudiniMeshTranslator::CreateHoudiniStaticMesh -- Set Triangle Indices & Per Vertex Instance Attribute Values);
 
 		// Now add the triangles to the mesh
 		for (int32 TriangleIdx = 0; TriangleIdx < NumTriangles; ++TriangleIdx)
@@ -10685,7 +10852,7 @@ FHoudiniMeshTranslator::ProcessMaterialsForHSM(
 	// Process material overrides first
 	if (PartFaceMaterialOverrides.Num() > 0)
 	{
-		TRACE_CPUPROFILER_EVENT_SCOPE(TEXT("FHoudiniMeshTranslator::CreateHoudiniStaticMesh -- Set Per Face Material Overrides"));
+		TRACE_CPUPROFILER_EVENT_SCOPE(FHoudiniMeshTranslator::CreateHoudiniStaticMesh -- Set Per Face Material Overrides);
 
 		// Array used to avoid constantly attempting to load invalid materials
 		TArray<FHoudiniMaterialIdentifier> InvalidMaterials;
@@ -10790,7 +10957,7 @@ FHoudiniMeshTranslator::ProcessMaterialsForHSM(
 		// The part has houdini materials
 		if (bOnlyOneFaceMaterial)
 		{
-			TRACE_CPUPROFILER_EVENT_SCOPE(TEXT("FHoudiniMeshTranslator::CreateHoudiniStaticMesh -- Set Single Material"));
+			TRACE_CPUPROFILER_EVENT_SCOPE(FHoudiniMeshTranslator::CreateHoudiniStaticMesh -- Set Single Material);
 
 			// Use default Houdini material if no valid material is assigned to any of the faces.
 			UMaterialInterface* MaterialInterface = Cast<UMaterialInterface>(FHoudiniEngine::Get().GetHoudiniDefaultMaterial(HGPO.bIsTemplated).Get());
@@ -10813,7 +10980,7 @@ FHoudiniMeshTranslator::ProcessMaterialsForHSM(
 		}
 		else
 		{
-			TRACE_CPUPROFILER_EVENT_SCOPE(TEXT("FHoudiniMeshTranslator::CreateHoudiniStaticMesh -- Set Per Face Materials"));
+			TRACE_CPUPROFILER_EVENT_SCOPE(FHoudiniMeshTranslator::CreateHoudiniStaticMesh -- Set Per Face Materials);
 
 			// We have multiple houdini materials
 			// Get default Houdini material.
@@ -10880,7 +11047,7 @@ FHoudiniMeshTranslator::ProcessMaterialsForHSM(
 	}
 	else
 	{
-		TRACE_CPUPROFILER_EVENT_SCOPE(TEXT("FHoudiniMeshTranslator::CreateHoudiniStaticMesh -- Set Default Material"));
+		TRACE_CPUPROFILER_EVENT_SCOPE(FHoudiniMeshTranslator::CreateHoudiniStaticMesh -- Set Default Material);
 
 		// No materials were found, we need to use default Houdini material.
 		UMaterialInterface* MaterialInterface = Cast<UMaterialInterface>(FHoudiniEngine::Get().GetHoudiniDefaultMaterial(HGPO.bIsTemplated).Get());
