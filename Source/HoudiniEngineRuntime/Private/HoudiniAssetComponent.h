@@ -788,10 +788,6 @@ protected:
 	bool bNoProxyMeshNextCookRequested;
 	
 	// If true, bake the asset after its next cook.
-	UPROPERTY(DuplicateTransient, meta=(DeprecatedProperty, DeprecationMessage="Use BakeAfterNextCook instead."))
-	bool bBakeAfterNextCook_DEPRECATED;
-
-	// If true, bake the asset after its next cook.
 	UPROPERTY(DuplicateTransient)
 	EHoudiniBakeAfterNextCook BakeAfterNextCook;
 
