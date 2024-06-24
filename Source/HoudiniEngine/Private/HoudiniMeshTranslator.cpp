@@ -7605,8 +7605,33 @@ FHoudiniMeshTranslator::CreateStaticMeshFromSplitGroups(const FString& MeshName,
 	ITargetPlatform* CurrentPlatform = GetTargetPlatformManagerRef().GetRunningTargetPlatform();
 	FStaticMeshLODGroup LODGroup = CurrentPlatform->GetStaticMeshLODSettings().GetLODGroup(NAME_None);
 
-	// Create Output
-	SplitMeshData.OutputObjectIdentifier = FHoudiniOutputObjectIdentifier(HGPO.ObjectId, HGPO.GeoId, HGPO.PartId, MeshName);
+	const int32 NumPoints = InPositionArray.Num();
+	TArray<houdini::gte::Vector3<double>> Points;
+	Points.SetNumUninitialized(InPositionArray.Num());
+	for(int32 i = 0; i < NumPoints; ++i)
+	{
+		Points[i] = Convert<double>(InPositionArray[i]);
+	}
+	// Calculate bounding Box.
+	houdini::gte::OrientedBox3<double> MinimalBox = houdini::gte::OrientedBox3<double>();
+	houdini::gte::MinimumVolumeBox3<double, double> BoxCompute;
+	MinimalBox = BoxCompute(NumPoints, Points.GetData(), nullptr);
+	
+	// FVector unitVec = FVector::OneVector;// bs->BuildScale3D;
+	// CalcBoundingBox(InPositionArray, Center, Extents, unitVec);
+	
+	const FVector X = Convert<double>(MinimalBox.axis[0]);
+	const FVector Y = Convert<double>(MinimalBox.axis[1]);
+	const FRotator Rot = FRotationMatrix::MakeFromXY(X,Y).Rotator();
+	
+	const FVector Extents = Convert(MinimalBox.extent);
+	FKBoxElem BoxElem;
+	BoxElem.Center = Convert(MinimalBox.center);
+	BoxElem.X = Extents.X * 2.0f;
+	BoxElem.Y = Extents.Y * 2.0f;
+	BoxElem.Z = Extents.Z * 2.0f;
+	BoxElem.Rotation = Rot;
+	OutAggregateCollisions.BoxElems.Add(BoxElem);
 
 	FHoudiniOutputObject* OutputObject = &OutputObjects.Add(SplitMeshData.OutputObjectIdentifier, {});
 	InputObjects.Remove(SplitMeshData.OutputObjectIdentifier);
@@ -7916,13 +7941,26 @@ FHoudiniMeshTranslator::CreateHoudiniStaticMeshFromSplitGroups(const FString& Me
 
 	TRACE_CPUPROFILER_EVENT_SCOPE(TEXT("FHoudiniMeshTranslator::CreateHoudiniStaticMeshFromSplitGroups -- Per Split"));
 
-	// Houdini Static Meshes only create a mesh for the top LOD.
-	if (SplitMeshData.LODRenders.Num() == 0)
-		return true;
+	const int32 NumPoints = InPositionArray.Num();
+	TArray<houdini::gte::Vector3<double>> Points;
+	Points.SetNumUninitialized(InPositionArray.Num());
+	for(int32 i = 0; i < NumPoints; ++i)
+	{
+		Points[i] = Convert<double>(InPositionArray[i]);
+	}
 
-	FHoudiniGroupedMeshPrimitives & Group =  SplitMeshData.SplitMeshData[SplitMeshData.LODRenders[0]];
+	houdini::gte::Capsule3<double> FitCapsule;
+	const bool bResultValid = GetContainer(NumPoints, Points.GetData(), FitCapsule);
+	if (!bResultValid)
+	{
+		return 0;
+	}
 
-	FString & SplitGroupName = Group.SplitGroupName;
+	houdini::gte::Vector3<double> GteCenter, GteDirection;
+	double Extent;
+	FitCapsule.segment.GetCenteredForm(GteCenter, GteDirection, Extent);
+	const FVector Direction = Convert<double>(GteDirection);
+	const FRotator Rot = FRotationMatrix::MakeFromZ(Direction).Rotator();
 
 	// Get the vertex indices for this group
 	TArray<int32>& SplitVertexList = AllSplitVertexLists[SplitGroupName];
