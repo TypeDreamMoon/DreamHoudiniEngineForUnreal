@@ -697,8 +697,6 @@ FHoudiniMeshTranslator::CreateStaticMeshFromHoudiniGeoPartObject(
 		return true;
 	}
 
-
-
 	// Create a new mesh translator to handle the output data creation
 	FHoudiniMeshTranslator CurrentTranslator;
 	CurrentTranslator.ForceRebuild = InForceRebuild;
@@ -5971,17 +5969,11 @@ FHoudiniMeshTranslator::CreateOrUpdateMeshComponent(
 		// Create a new SMC/HSMC as we couldn't find an existing one
 		MeshComponent = CreateMeshComponent(InOuterComponent, InComponentType);
 
-		if (MeshComponent)
-		{
-			// Add to the output object
-			if (bIsProxyComponent)
-				OutputObject.ProxyComponent = MeshComponent;
-			else
-			{
-				check(OutputObject.OutputComponents.Num() < 2); // Multiple components not supported yet.
-				OutputObject.OutputComponents.Empty();
-				OutputObject.OutputComponents.Add(MeshComponent);
-			}
+		UStaticMesh* SM = Current.Value;
+		if (!IsValid(SM))
+			continue;
+		
+		const FHoudiniOutputObjectIdentifier& CurrentObjId = Current.Key;
 
 			bCreated = true;
 		}
@@ -6067,9 +6059,22 @@ FHoudiniMeshTranslator::AddActorsToMeshSocket(UStaticMeshSocket * Socket, UStati
 		}
 	}
 
-	auto CreateDefaultActor = [EditorWorld, StaticMeshComponent, Socket, HoudiniCreatedSocketActors]() 
-	{
-		AActor * CreatedDefaultActor = nullptr;
+		// Update property attributes on the SM
+		TArray<FHoudiniGenericAttribute> PropertyAttributes;
+		if (FHoudiniEngineUtils::GetGenericPropertiesAttributes(
+			CurrentObjId.GeoId,
+			CurrentObjId.PartId,
+			true,
+			CurrentObjId.PrimitiveIndex,
+			INDEX_NONE,
+			CurrentObjId.PointIndex,
+			PropertyAttributes))
+		{
+			// Defer post edit change calls until after all property values have been set, since the static mesh
+			// build function is called from PostEditChangeProperty.
+			constexpr bool bDeferPostEditChangePropertyCalls = true;
+			FHoudiniEngineUtils::UpdateGenericPropertiesAttributes(SM, PropertyAttributes, 0, bDeferPostEditChangePropertyCalls);
+		}
 
 		UStaticMesh * DefaultReferenceSM = FHoudiniEngine::Get().GetHoudiniDefaultReferenceMesh().Get();
 		if (IsValid(DefaultReferenceSM))
