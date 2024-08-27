@@ -1899,10 +1899,20 @@ FHoudiniMeshTranslator::CreateStaticMesh_MeshDescription()
 	///////////////////////////////////////////////////////////////////////
 	// THIS FUNCTION IS DEPRECATED AND WILL REMOVED IN THE NEXT RELEASE.
 	///////////////////////////////////////////////////////////////////////
-	
+
 	// Time limit for processing
 	bDoTiming = CVarHoudiniEngineMeshBuildTimer.GetValueOnAnyThread() != 0.0;
 
+	double time_start = FPlatformTime::Seconds();
+
+	bool bIsGammaCorrectionDisabled = IsGammaCorrectionDisabled(HGPO.GeoId, HGPO.PartId);
+
+	// Keep a copy of the initial package params, since PackageParams is modified in place when resolving attributes
+	FHoudiniPackageParams InitialPackageParams = PackageParams;
+
+	// Start by updating the vertex list
+	if (!UpdatePartVertexList())
+		return false;
 
 		if (FoundStaticMesh->GetNumSourceModels() != NeededNumberOfLODs)
 		{
@@ -5713,10 +5723,35 @@ FHoudiniMeshTranslator::GenerateKDopAsSimpleCollision(const TArray<FVector>& InP
 
 			TArray<FString> AttributeValues;
 
-			FHoudiniHapiAccessor Accessor(HGPO.GeoId, HGPO.PartId, HAPI_UNREAL_ATTRIB_SIMPLE_PHYSICAL_MATERIAL);
-			Accessor.GetInfo(AttributeInfo, HAPI_ATTROWNER_PRIM);
-			AttributeInfo.tupleSize = 1;
-			bool bSuccess = Accessor.GetAttributeData(AttributeInfo, AttributeValues);
+					// Color
+					FLinearColor Color = FLinearColor::White;
+					if (bHasRGB)
+					{
+						Color.R = FMath::Clamp(
+							SplitColors[SplitIndex * AttribInfoColors.tupleSize + 0], 0.0f, 1.0f);
+						Color.G = FMath::Clamp(
+							SplitColors[SplitIndex * AttribInfoColors.tupleSize + 1], 0.0f, 1.0f);
+						Color.B = FMath::Clamp(
+							SplitColors[SplitIndex * AttribInfoColors.tupleSize + 2], 0.0f, 1.0f);
+					}
+					// Alpha
+					if (bHasAlpha)
+					{
+						Color.A = FMath::Clamp(SplitAlphas[SplitIndex], 0.0f, 1.0f);
+					}
+					else if (bHasRGBA)
+					{
+						Color.A = FMath::Clamp(SplitColors[SplitIndex * AttribInfoColors.tupleSize + 3], 0.0f, 1.0f);
+					}
+
+					if (bIsGammaCorrectionDisabled)
+					{
+						// Mesh Description colors are always gamma corrected by Unreal. So we have to reverse the correction
+						// if this flag is enabled.
+						Color =  FLinearColor::FromSRGBColor(Color.ToFColor(false));
+					}
+					FVector4f VertexColor = FVector4f(Color);
+					VertexInstanceColors[VertexInstanceID] = VertexColor;
 
 			if (bSuccess && AttributeValues.Num() > 0)
 			{
@@ -6162,11 +6197,11 @@ FHoudiniMeshTranslator::AddActorsToMeshSocket(UStaticMeshSocket * Socket, UStati
 		if (!IsValid(Actor) || Actor->IsUnreachable())
 			continue;
 
-		for (int32 StringIdx = 0; StringIdx < ActorStringArray.Num(); StringIdx++)
-		{
-			if (Actor->GetName() != ActorStringArray[StringIdx]
-				&& Actor->GetActorLabel() != ActorStringArray[StringIdx])
-				continue;
+	bool bIsGammaCorrectionDisabled = IsGammaCorrectionDisabled(HGPO.GeoId, HGPO.PartId);
+
+	// Start by updating the vertex list
+	if (!UpdatePartVertexList())
+		return false;
 
 			// Set the actor components mobility to the same as output SMC's
 			EComponentMobility::Type OutputSMCMobility = StaticMeshComponent->Mobility;
@@ -6638,11 +6673,29 @@ void FHoudiniMeshTranslator::ProcessMaterials(UStaticMesh* FoundStaticMesh, FHou
 				// Get material id for this face.
 				HAPI_NodeId MaterialId = PartFaceMaterialIds[SplitFaceIndex];
 
-				// See if we have already treated that material
-				UMaterialInterface** FoundMaterialInterface = MapHoudiniMatIdToUnrealInterface.Find(MaterialId);
-				UMaterialInterface* MaterialInterface = nullptr;
-				if (FoundMaterialInterface)
-					MaterialInterface = *FoundMaterialInterface;
+							if (bSplitAlphaValid)
+							{
+								VertexLinearColor.A = FMath::Clamp(SplitAlphas[TriVertIdx0 + ElementIdx], 0.0f, 1.0f);
+							}
+							else if (AttribInfoColors.tupleSize >= 4)
+							{
+								VertexLinearColor.A = FMath::Clamp(
+									SplitColors[TriVertIdx0 * AttribInfoColors.tupleSize + AttribInfoColors.tupleSize * ElementIdx + 3], 0.0f, 1.0f);
+							}
+							else
+							{
+								VertexLinearColor.A = 1.0f;
+							}
+
+							FColor VertexColor = VertexLinearColor.ToFColor(false);
+
+							// If Gamma correction is disabled, de-convert the color. Since SetTriangleVertexColor() will apply gamma.
+							if (bIsGammaCorrectionDisabled)
+								VertexColor = FLinearColor::FromSRGBColor(VertexColor).ToFColor(false);
+
+							FoundStaticMesh->SetTriangleVertexColor(TriangleIdx, TriWindingIndex[ElementIdx], VertexColor);
+						}
+					}
 
 				if (MaterialInterface)
 				{
@@ -11085,6 +11138,18 @@ FHoudiniMeshTranslator::ProcessMaterialsForHSM(
 		FoundStaticMaterials.Empty();
 		FoundStaticMaterials.Add(FStaticMaterial(MaterialInterface));
 	}
+}
+
+
+bool FHoudiniMeshTranslator::IsGammaCorrectionDisabled(HAPI_NodeId  NodeId, HAPI_PartId PartId)
+{
+	FHoudiniHapiAccessor Accessor(NodeId, PartId, HAPI_UNREAL_ATTRIB_DISABLE_GAMMA_CORRECTION);
+	TArray<int> Values;
+	Accessor.GetAttributeData(HAPI_ATTROWNER_INVALID, Values);
+	if (Values.IsEmpty())
+		return false;
+
+	return Values[0] != 0;
 }
 
 #undef LOCTEXT_NAMESPACE
