@@ -1112,6 +1112,8 @@ FHoudiniSkeletalMeshTranslator::ProcessSkeletalMeshOutputs(
 	TMap<FHoudiniMaterialIdentifier, UMaterialInterface*>& InAllOutputMaterials,
 	UObject* InOuterComponent)
 {
+	TRACE_CPUPROFILER_EVENT_SCOPE(FHoudiniSkeletalMeshTranslator::ProcessSkeletalMeshOutputs);
+
 	if (!IsValid(InOutput))
 		return false;
 

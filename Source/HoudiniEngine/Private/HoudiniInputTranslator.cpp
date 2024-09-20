@@ -129,6 +129,8 @@ struct FHoudiniMoveTracker
 bool
 FHoudiniInputTranslator::UpdateInputs(UHoudiniAssetComponent* HAC)
 {
+	TRACE_CPUPROFILER_EVENT_SCOPE(FHoudiniInputTranslator::UpdateInputs);
+
 	if (!IsValid(HAC))
 		return false;
 
@@ -152,6 +154,8 @@ FHoudiniInputTranslator::BuildAllInputs(
 	TArray<UHoudiniInput*>& Inputs,
 	TArray<UHoudiniParameter*>& Parameters)
 {
+	TRACE_CPUPROFILER_EVENT_SCOPE(FHoudiniInputTranslator::BuildAllInputs);
+
 	// Ensure the asset has a valid node ID
 	if (AssetId < 0)
 	{

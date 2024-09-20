@@ -100,6 +100,8 @@ FHoudiniMeshTranslator::CreateAllMeshesAndComponentsFromHoudiniOutput(
 	bool bInTreatExistingMaterialsAsUpToDate,
 	bool bInDestroyProxies)
 {
+	TRACE_CPUPROFILER_EVENT_SCOPE(FHoudiniMeshTranslator::CreateAllMeshesAndComponentsFromHoudiniOutput);
+
 	if (!IsValid(InOutput))
 		return false;
 
@@ -175,7 +177,10 @@ FHoudiniMeshTranslator::CreateAllMeshesAndComponentsFromHoudiniOutput(
 bool
 FHoudiniMeshTranslator::UpdateSplitsFacesAndIndices()
 {
-	TRACE_CPUPROFILER_EVENT_SCOPE(TEXT("FHoudiniMeshTranslator::UpdateSplitsFacesAndIndices"));
+	TRACE_CPUPROFILER_EVENT_SCOPE(FHoudiniMeshTranslator::CreateOrUpdateAllComponents);
+
+	if (!IsValid(InOutput))
+		return false;
 
 	// Reset the splits faces/indices arrays
 	AllSplitVertexLists.Empty();
@@ -690,10 +695,14 @@ FHoudiniMeshTranslator::CreateStaticMeshFromHoudiniGeoPartObject(
 	const FMeshBuildSettings& InSMBuildSettings,
 	bool bInTreatExistingMaterialsAsUpToDate)
 {
-	TRACE_CPUPROFILER_EVENT_SCOPE(TEXT("FHoudiniMeshTranslator::UpdatePartColorsIfNeeded"));
+	TRACE_CPUPROFILER_EVENT_SCOPE(FHoudiniMeshTranslator::CreateStaticMeshFromHoudiniGeoPartObject);
 
-	// Only Retrieve the vertices colors if necessary
-	if (PartColors.Num() > 0)
+	// If we're not forcing the rebuild
+	// No need to recreate something that hasn't changed
+	if (!InForceRebuild && !InHGPO.bHasGeoChanged && !InHGPO.bHasPartChanged && InOutputObjects.Num() > 0)
+	{
+		// Simply reuse the existing meshes
+		OutOutputObjects = InOutputObjects;
 		return true;
 	}
 
