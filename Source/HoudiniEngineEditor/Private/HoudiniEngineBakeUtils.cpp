@@ -155,6 +155,8 @@
 #include "HoudiniFoliageUtils.h"
 
 #include "PhysicsEngine/PhysicsAsset.h"
+#include "Animation/AnimSequence.h"
+
 
 HOUDINI_BAKING_DEFINE_LOG_CATEGORY();
 
@@ -727,6 +729,26 @@ FHoudiniEngineBakeUtils::BakeHoudiniOutputsToActors(
 				InFallbackWorldOutlinerFolder);
 			}
 			break;
+
+		case EHoudiniOutputType::AnimSequence:
+		{
+			FHoudiniEngineBakeUtils::BakeAnimSequence(
+				HoudiniAssetComponent,
+				OutputIdx,
+				InOutputs,
+				InBakeState,
+				InBakeFolder,
+				InTempCookFolder,
+				BakeSettings,
+				AllBakedActors,
+				OutputBakedActors,
+				BakedObjectData,
+				AlreadyBakedStaticMeshMap,
+				AlreadyBakedMaterialsMap,
+				InFallbackActor,
+				InFallbackWorldOutlinerFolder);
+		}
+		break;
 
 		case EHoudiniOutputType::Invalid:
 				break;
@@ -4068,147 +4090,24 @@ FHoudiniEngineBakeUtils::BakeDataTables(
 		
 }
 
-UUserDefinedStruct * FHoudiniEngineBakeUtils::CreateBakedUserDefinedStruct(
-	UHoudiniOutput* CookedOutput,
-	const FHoudiniOutputObjectIdentifier& Identifier,
-	const UHoudiniAssetComponent* HoudiniAssetComponent,
-	FHoudiniBakedOutput& BakedOutput,
-	const FDirectoryPath& InBakeFolder,
-	bool bInReplaceActors,
-	bool bInReplaceAssets,
-	TArray<UPackage*>& OutPackagesToSave,
-	FHoudiniEngineOutputStats& OutBakeStats)
-{
-	FHoudiniPackageParams PackageParams;
-
-	FHoudiniOutputObject& OutputObject =  CookedOutput->GetOutputObjects().FindOrAdd(Identifier);
-
-	auto * UserStruct = Cast<UUserDefinedStruct>(OutputObject.OutputObject);
-
-	if (!ResolvePackageParams(HoudiniAssetComponent,
-		CookedOutput,
-		Identifier,
-		OutputObject,
-		FString(""),
-		InBakeFolder,
-		bInReplaceAssets,
-		PackageParams,
-		OutPackagesToSave))
-	{
-		return nullptr;
-	}
-
-	FString* OutputName = nullptr;
-
-	if ((OutputName = OutputObject.CachedAttributes.Find(HAPI_UNREAL_ATTRIB_DATA_TABLE_ROWSTRUCT)))
-	{
-		// use the name verbatim from the user.
-		PackageParams.ObjectName = *OutputName;
-	}
-	else if ((OutputName = OutputObject.CachedAttributes.Find(HAPI_UNREAL_ATTRIB_CUSTOM_OUTPUT_NAME_V2)))
-	{
-		PackageParams.ObjectName = *OutputName + FString("_rowstruct");
-	}
-	else
-	{
-		PackageParams.SplitStr = "rowstruct";
-	}
-
-	FHoudiniBakedOutputObject& BakedOutputObject = BakedOutput.BakedOutputObjects.FindOrAdd(Identifier);
-
-	FString PackageName = PackageParams.GetPackagePath();
-	FString CreatedPackageName;
-	UPackage* Package = PackageParams.CreatePackageForObject(CreatedPackageName);
-
-	UUserDefinedStruct* BakedObject = DuplicateUserDefinedStruct(UserStruct, Package, CreatedPackageName);
-	BakedOutputObject.BakedObject = BakedObject->GetPathName();
-	OutPackagesToSave.Add(Package);
-
-	return BakedObject;
-}
-
-UDataTable* FHoudiniEngineBakeUtils::CreateBakedDataTable(
-	UScriptStruct* UserDefinedStruct,
-	const FString & ObjectName,
-	UHoudiniOutput* CookedOutput,
-	const FHoudiniOutputObjectIdentifier& Identifier,
-	const UHoudiniAssetComponent* HoudiniAssetComponent,
-	FHoudiniBakedOutput& BakedOutput,
-	const FDirectoryPath& BakeFolder,
-	bool bInReplaceActors,
-	bool bInReplaceAssets,
-	TArray<UPackage*>& OutPackagesToSave,
-	FHoudiniEngineOutputStats& OutBakeStats)
-{
-	FHoudiniOutputObject& OutputObject = CookedOutput->GetOutputObjects().FindOrAdd(Identifier);
-
-	FHoudiniPackageParams PackageParams;
-
-	if (!ResolvePackageParams(HoudiniAssetComponent,
-		CookedOutput,
-		Identifier,
-		OutputObject,
-		FString(""),
-		BakeFolder,
-		bInReplaceAssets,
-		PackageParams,
-		OutPackagesToSave))
-	{
-		return nullptr;
-	}
-
-	PackageParams.SplitStr = "datatable";
-
-	UDataTable* CookedDataTable = Cast<UDataTable>(OutputObject.OutputObject);
-
-	UDataTable* BakedDataTable = static_cast<UDataTable*>(PackageParams.CreateObjectAndPackageFromClass(UDataTable::StaticClass()));
-
-	BakedDataTable->PreEditChange(nullptr);
-
-	// Get Row Data. Due to type mismatches in Unreal, we need to make a copy of it.
-	TMap<FName, const uint8*> ConstMap;
-	auto& RowMap = CookedDataTable->GetRowMap();
-	for (auto It : RowMap)
-		ConstMap.Add(It.Key, (const uint8*)It.Value);
-
-	// If no User Defined Struct was specified, use the one from the cooked table.
-	UScriptStruct * StructToUse = UserDefinedStruct;
-	if (!IsValid(StructToUse))
-		StructToUse = (UScriptStruct*)CookedDataTable->GetRowStruct();
-
-	BakedDataTable->CreateTableFromRawData(ConstMap, StructToUse);
-
-	OutBakeStats.NotifyPackageCreated(1);
-	OutPackagesToSave.Add(BakedDataTable->GetPackage());
-	BakedDataTable->MarkPackageDirty();
-
-	FHoudiniBakedOutputObject& BakedOutputObject = BakedOutput.BakedOutputObjects.FindOrAdd(Identifier);
-
-	BakedOutputObject.BakedObject = BakedDataTable->GetPathName();
-
-	return BakedDataTable;
-}
-
 bool
-FHoudiniEngineBakeUtils::BakeDataTables(
+FHoudiniEngineBakeUtils::BakeAnimSequence(
 	const UHoudiniAssetComponent* HoudiniAssetComponent,
 	int32 InOutputIndex,
 	const TArray<UHoudiniOutput*>& InAllOutputs,
-	TArray<FHoudiniBakedOutput>& InBakedOutputs,
+	FHoudiniEngineBakeState& InBakeState,
 	const FDirectoryPath& InBakeFolder,
 	const FDirectoryPath& InTempCookFolder,
-	bool bInReplaceActors,
-	bool bInReplaceAssets,
+	const FHoudiniBakeSettings& BakeSettings,
 	const TArray<FHoudiniEngineBakedActor>& InBakedActors,
 	TArray<FHoudiniEngineBakedActor>& OutActors,
-	TArray<UPackage*>& OutPackagesToSave,
+	FHoudiniBakedObjectData& BakedObjectData,
 	TMap<UStaticMesh*, UStaticMesh*>& InOutAlreadyBakedStaticMeshMap,
 	TMap<UMaterialInterface*, UMaterialInterface*>& InOutAlreadyBakedMaterialsMap,
-	FHoudiniEngineOutputStats& OutBakeStats,
 	AActor* InFallbackActor,
 	const FString& InFallbackWorldOutlinerFolder)
 {
-	if ((InOutputIndex < 0) || !InAllOutputs.IsValidIndex(InOutputIndex) )
+	if ((InOutputIndex < 0) || !InAllOutputs.IsValidIndex(InOutputIndex))
 		return false;
 
 	// Get previously cooked output.
@@ -4216,27 +4115,19 @@ FHoudiniEngineBakeUtils::BakeDataTables(
 	if (!IsValid(CookedOutput))
 		return false;
 
-	// Get the previous bake objects
-	if (!InBakedOutputs.IsValidIndex(InOutputIndex))
-		InBakedOutputs.SetNum(InOutputIndex + 1);
 
-	FHoudiniBakedOutput & BakedOutput = InBakedOutputs[InOutputIndex];
-
-	//----------------------------------------------------------------------------------------------------------
-	// See if we created a UserDefinedStruct during COOKING. If so, we must create a new version in the Bake folder
-	//----------------------------------------------------------------------------------------------------------
-
-	UUserDefinedStruct * BakedUserStruct = nullptr;
 	FHoudiniPackageParams PackageParams;
 
 	const FString DefaultObjectName = TEXT("Default");
 
-	for(auto & It : CookedOutput->GetOutputObjects())
+	for (auto& It : CookedOutput->GetOutputObjects())
 	{
 		if (!IsValid(It.Value.OutputObject))
 			continue;
 
-		if (It.Value.OutputObject->IsA<UUserDefinedStruct>())
+		FHoudiniOutputObject& OutputObject = It.Value;
+
+		if (OutputObject.OutputObject->IsA<UAnimSequence>())
 		{
 			FDirectoryPath BakeFolder = InBakeFolder;
 			FString* Attribute = It.Value.CachedAttributes.Find(HAPI_UNREAL_ATTRIB_BAKE_FOLDER);
@@ -4245,67 +4136,24 @@ FHoudiniEngineBakeUtils::BakeDataTables(
 				BakeFolder.Path = *Attribute;
 			}
 
-			BakedUserStruct = CreateBakedUserDefinedStruct(
-				CookedOutput,
-				It.Key,
-				HoudiniAssetComponent,
-				InBakedOutputs[InOutputIndex],
-				BakeFolder,
-				bInReplaceActors,
-				bInReplaceAssets,
-				OutPackagesToSave,
-				OutBakeStats);
-
-			if (!BakedUserStruct)
-				return false;
-
-			break;
-		}
-	}
-
-
-	//----------------------------------------------------------------------------------------------------------
-	// Create a baked copy of the data table. We don't just duplicate the Data Table and change the UUserDefinedStruct
-	// because Unreal does not allow this. So we need to actually bake a new table and copy the data over.
-	//----------------------------------------------------------------------------------------------------------
-
-	UDataTable* BakedDataTable = nullptr;
-	for (auto& It : CookedOutput->GetOutputObjects())
-	{
-		if (!IsValid(It.Value.OutputObject))
-			continue;
-
-		FHoudiniOutputObject & OutputObject = It.Value;
-
-		if (OutputObject.OutputObject->IsA<UDataTable>())
-		{
-			FDirectoryPath BakeFolder = InBakeFolder;
-			FString * Attribute = It.Value.CachedAttributes.Find(HAPI_UNREAL_ATTRIB_BAKE_FOLDER);
-			if (Attribute != nullptr)
-			{
-				BakeFolder.Path = *Attribute;
-			}
-
 			FString ObjectName = "";
-			if (FString * Value = OutputObject.CachedAttributes.Find(HAPI_UNREAL_ATTRIB_CUSTOM_OUTPUT_NAME_V2))
+			if (FString* Value = OutputObject.CachedAttributes.Find(HAPI_UNREAL_ATTRIB_CUSTOM_OUTPUT_NAME_V2))
 			{
 				ObjectName = *Value;
 			}
-			
-			BakedDataTable = CreateBakedDataTable(
-				BakedUserStruct,
+
+			UAnimSequence * BakedAnimSequence = CreateBakedAnimSequence(
 				ObjectName,
 				CookedOutput,
 				It.Key,
 				HoudiniAssetComponent,
-				InBakedOutputs[InOutputIndex],
+				InBakeState.GetOldBakedOutputs()[InOutputIndex],
+				InBakeState.GetNewBakedOutputs()[InOutputIndex],
 				BakeFolder,
-				bInReplaceActors,
-				bInReplaceAssets,
-				OutPackagesToSave,
-				OutBakeStats);
+				BakeSettings,
+				BakedObjectData);
 
-			if (!BakedDataTable)
+			if (!BakedAnimSequence)
 				return false;
 
 			break;
@@ -4313,9 +4161,78 @@ FHoudiniEngineBakeUtils::BakeDataTables(
 	}
 
 	return true;
-
-		
 }
+
+UAnimSequence * FHoudiniEngineBakeUtils::CreateBakedAnimSequence(
+	const FString& ObjectName,
+	UHoudiniOutput* CookedOutput,
+	const FHoudiniOutputObjectIdentifier& Identifier,
+	const UHoudiniAssetComponent* HoudiniAssetComponent,
+	const FHoudiniBakedOutput& InPreviousBakedOutput,
+	FHoudiniBakedOutput& InNewBakedOutput,
+	const FDirectoryPath& BakeFolder,
+	const FHoudiniBakeSettings& BakeSettings,
+	FHoudiniBakedObjectData& BakedObjectData)
+{
+	FHoudiniOutputObject& OutputObject = CookedOutput->GetOutputObjects().FindOrAdd(Identifier);
+	FHoudiniBakedOutputObject BakedOutputObject;
+	const bool bHasPreviousBakeData = InPreviousBakedOutput.BakedOutputObjects.Contains(Identifier);
+	if (bHasPreviousBakeData)
+		BakedOutputObject = InPreviousBakedOutput.BakedOutputObjects.FindChecked(Identifier);
+
+	FHoudiniPackageParams PackageParams;
+
+	FHoudiniOutputObjectIdentifier BakeIdentifier = Identifier;
+	BakeIdentifier.SplitIdentifier = "anim";
+
+	if (!ResolvePackageParams(HoudiniAssetComponent,
+		CookedOutput,
+		BakeIdentifier,
+		OutputObject,
+		bHasPreviousBakeData,
+		FString(""),
+		BakeFolder,
+		BakeSettings,
+		PackageParams,
+		BakedObjectData))
+	{
+		return nullptr;
+	}
+
+	UAnimSequence * CookedAnimSequence = Cast<UAnimSequence>(OutputObject.OutputObject);
+
+	// Create the package for the object
+	FString NewObjectName;
+	UPackage* Package = PackageParams.CreatePackageForObject(NewObjectName);
+	if (!IsValid(Package))
+		return nullptr;
+
+	if (!Package->IsFullyLoaded())
+	{
+		FlushAsyncLoading();
+		if (!Package->GetOuter())
+		{
+			Package->FullyLoad();
+		}
+		else
+		{
+			Package->GetOutermost()->FullyLoad();
+		}
+	}
+	UAnimSequence* BakedAnimSequence = Cast<UAnimSequence>(DuplicateObject(CookedAnimSequence, Package, *NewObjectName));
+
+	//BakedAnimSequence->PreEditChange(nullptr);
+
+	BakedObjectData.BakeStats.NotifyPackageCreated(1);
+	BakedObjectData.PackagesToSave.Add(BakedAnimSequence->GetPackage());
+	BakedAnimSequence->MarkPackageDirty();
+
+	BakedOutputObject.BakedObject = BakedAnimSequence->GetPathName();
+	InNewBakedOutput.BakedOutputObjects.Emplace(Identifier, BakedOutputObject);
+
+	return BakedAnimSequence;
+}
+
 
 bool FHoudiniEngineBakeUtils::BakeGeometryCollectionOutputToActors(
 	const UHoudiniAssetComponent* HoudiniAssetComponent,
