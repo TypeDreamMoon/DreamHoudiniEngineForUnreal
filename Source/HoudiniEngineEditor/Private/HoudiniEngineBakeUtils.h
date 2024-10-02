@@ -54,6 +54,7 @@ class UGeometryCollection;
 class UGeometryCollectionComponent;
 class AGeometryCollectionActor; 
 class UMaterialExpression;
+class UPhysicsAsset;
 
 struct FHoudiniPackageParams;
 struct FHoudiniGeoPartObject;
@@ -224,6 +225,12 @@ public:
 	const TMap<USkeleton*, USkeleton*>& GetBakedSkeletons() const { return BakedSkeletons; }
 	// Get a reference to BakedSkeletons
 	TMap<USkeleton*, USkeleton*>& GetBakedSkeletons() { return BakedSkeletons; }
+
+	// Get a const reference to BakedSkeletons
+	const TMap<UPhysicsAsset*, UPhysicsAsset*>& GetBakedPhysicsAssets() const { return BakedPhysicsAssets; }
+	// Get a reference to BakedSkeletons
+	TMap<UPhysicsAsset*, UPhysicsAsset*>& GetBakedPhysicsAssets() { return BakedPhysicsAssets; }
+
 	// Add a temp -> baked skeleton entry
 	void AddBakedSkeleton(USkeleton* InTempSkeleton, USkeleton* InBakedSkeleton) { BakedSkeletons.Add(InTempSkeleton, InBakedSkeleton); }
 	// Look for a baked skeleton for InTempSkeleton in BakedSkeletons map.
@@ -236,7 +243,10 @@ protected:
 	TArray<FHoudiniBakedOutput> NewBakedOutputs;
 
 	// Map of temp to baked Skeletons
-	TMap<USkeleton*, USkeleton*> BakedSkeletons; 
+	TMap<USkeleton*, USkeleton*> BakedSkeletons;
+
+	// Map of temp to baked Physics Assets
+	TMap<UPhysicsAsset*, UPhysicsAsset*> BakedPhysicsAssets;
 };
 
 
@@ -448,6 +458,16 @@ public:
 		const FString& InTemporaryCookFolder,
 		FHoudiniBakedObjectData& BakedObjectData,
 		TMap<USkeleton*, USkeleton*>& InOutAlreadyBakedSkeletonMap);
+
+	static UPhysicsAsset* DuplicatePhysicsAssetAndCreatePackageIfNeeded(
+		UPhysicsAsset * InPhysicsAsset,
+		UPhysicsAsset * InPreviousBakeSkeleton,
+		const FHoudiniPackageParams& PackageParams,
+		const TArray<UHoudiniOutput*>& InParentOutputs,
+		const TArray<FHoudiniEngineBakedActor>& InCurrentBakedActors,
+		const FString& InTemporaryCookFolder,
+		FHoudiniBakedObjectData& BakedObjectData,
+		TMap<UPhysicsAsset*, UPhysicsAsset*>& InOutAlreadyBakedPhysicsAssetMap);
 
 	static UGeometryCollection * DuplicateGeometryCollectionAndCreatePackageIfNeeded(
 		UGeometryCollection * InGeometryCollection,

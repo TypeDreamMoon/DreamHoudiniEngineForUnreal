@@ -7169,9 +7169,49 @@ void FHoudiniMeshTranslator::PullMeshData(FHoudiniGroupedMeshPrimitives& SplitMe
 		}
 	}
 
-	//--------------------------------------------------------------------------------------------------------------------- 
-	// COLORS
-	//---------------------------------------------------------------------------------------------------------------------
+	return true;
+}
+
+TArray<FVector> FHoudiniMeshTranslator::GetKdopDirections(const FString& SplitGroupName)
+{
+	uint32 NumDirections = 26;
+	const FVector* Directions = KDopDir26;
+	if (SplitGroupName.Contains("kdop10X"))
+	{
+		NumDirections = 10;
+		Directions = KDopDir10X;
+	}
+	else if (SplitGroupName.Contains("kdop10Y"))
+	{
+		NumDirections = 10;
+		Directions = KDopDir10Y;
+	}
+	else if (SplitGroupName.Contains("kdop10Z"))
+	{
+		NumDirections = 10;
+		Directions = KDopDir10Z;
+	}
+	else if (SplitGroupName.Contains("kdop18"))
+	{
+		NumDirections = 18;
+		Directions = KDopDir18;
+	}
+
+	// Converting the directions to a TArray
+	TArray<FVector> DirArray;
+	DirArray.SetNum(NumDirections);
+	for (uint32 DirectionIndex = 0; DirectionIndex < NumDirections; DirectionIndex++)
+	{
+		DirArray[DirectionIndex] = Directions[DirectionIndex];
+	}
+	return DirArray;
+}
+
+bool
+FHoudiniMeshTranslator::AddSimpleCollisionToAggregate(const FString& SplitGroupName, FKAggregateGeom& AggCollisions)
+{
+	// Get the vertex indices for the split group
+	TArray<int32>& SplitGroupVertexList = AllSplitVertexLists[SplitGroupName];
 
 	UpdatePartColorsIfNeeded();
 	FHoudiniMeshTranslator::TransferRegularPointAttributesToVertices(SplitMeshData.VertexList, AttribInfoColors, PartColors, SplitMeshData.Colors);
@@ -7196,6 +7236,9 @@ void FHoudiniMeshTranslator::PullMeshData(FHoudiniGroupedMeshPrimitives& SplitMe
 	{
 		FHoudiniMeshTranslator::TransferPartAttributesToSplit<float>(SplitMeshData.VertexList, AttribInfoUVSets[TexCoordIdx], PartUVSets[TexCoordIdx], SplitMeshData.UVSets[TexCoordIdx]);
 	}
+	else
+	{
+		TArray<FVector> DirArray = GetKdopDirections(SplitGroupName);
 
 	//--------------------------------------------------------------------------------------------------------------------- 
 	// FACE SMOOTHING
