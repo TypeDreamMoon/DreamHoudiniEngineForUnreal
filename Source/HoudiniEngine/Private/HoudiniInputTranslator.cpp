@@ -93,6 +93,10 @@
 	#include "UnrealEdGlobals.h"
 #endif
 
+#if ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION >= 5
+	#include "MeshMerge/MeshMergingSettings.h"
+#endif
+
 #if ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION >= 3
 	#include "GeometryCollection/GeometryCollectionActor.h"
 	#include "GeometryCollection/GeometryCollectionComponent.h"
@@ -2386,7 +2390,11 @@ FHoudiniInputTranslator::HapiCreateInputNodeForActorReference(
 		// We just want the path up to the first point
 		int32 DotIndex;
 		if (ActorLevelPath.FindChar('.', DotIndex))
+#if ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION >= 5
+			ActorLevelPath.LeftInline(DotIndex, EAllowShrinking::No);
+#else
 			ActorLevelPath.LeftInline(DotIndex, false);
+#endif
 	}
 
 	// Component properties
