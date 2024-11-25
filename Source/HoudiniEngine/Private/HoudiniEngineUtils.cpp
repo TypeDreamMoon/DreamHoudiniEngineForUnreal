@@ -6658,6 +6658,7 @@ FHoudiniEngineUtils::KeepOrClearComponentTags(UActorComponent* ActorComponent, b
 void
 FHoudiniEngineUtils::KeepOrClearActorTags(AActor* Actor, bool bApplyToActor, bool bApplyToComponents, const FHoudiniGeoPartObject* InHGPO)
 {
+	TRACE_CPUPROFILER_EVENT_SCOPE(FHoudiniEngineUtils::KeepOrClearActorTags);
 	if (!IsValid(Actor))
 	{
 		return;
