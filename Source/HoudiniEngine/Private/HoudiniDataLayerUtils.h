@@ -59,9 +59,10 @@ class HOUDINIENGINE_API FHoudiniDataLayerUtils
 public:
 	// Extracts the data layer from the Houdini Geo/Part and applies it to the Actor. Normally
 	// called after cooking/baking.
-	static void ApplyDataLayersToActor(const FHoudiniPackageParams& Params, AActor* Actor, const TArray<FHoudiniDataLayer>& Layers);
+	static void ApplyDataLayersToActor(AActor* Actor, TArray<FHoudiniDataLayer>& DataLayers, TMap<FString, UDataLayerInstance*>& DataLayerLookup);
 
 	static TArray<FHoudiniDataLayer> GetDataLayers(HAPI_NodeId NodeId, HAPI_PartId PartId);
+	static TArray<FHoudiniDataLayer> GetDataLayers(HAPI_NodeId NodeId, HAPI_PartId PartId, HAPI_GroupType GroupType);
 
 	// Using this cache, create Houdini Groups for this Actor.
 	static bool AddGroupsFromDataLayers(AActor* Actor, HAPI_NodeId NodeId, HAPI_PartId PartId);
@@ -69,7 +70,13 @@ public:
 #if HOUDINI_ENABLE_DATA_LAYERS
 	static void AddActorToLayer(const FHoudiniPackageParams& Params, AWorldDataLayers* WorldDataLayers, AActor* Actor, const FHoudiniDataLayer& Layer);
 	static UDataLayerAsset* CreateDataLayerAsset(const FHoudiniPackageParams& Params, const FString & LayerName);
-	static TArray<FHoudiniUnrealDataLayerInfo> GetDataLayerInfoForActor(AActor* Actor);
+
+	static UDataLayerInstance* FindOrCreateDataLayerInstance(
+		const FHoudiniPackageParams& Params,
+		AWorldDataLayers* WorldDataLayers,
+		const FHoudiniDataLayer& Layer);
+
+
 #endif
 
 
