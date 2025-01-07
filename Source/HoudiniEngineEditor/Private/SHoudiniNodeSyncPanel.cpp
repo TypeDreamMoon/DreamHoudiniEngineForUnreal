@@ -1100,7 +1100,7 @@ SHoudiniNodeSyncPanel::Helper_CreateSelectionWidget()
 		if (!HoudiniEditorNodeSyncSubsystem || !HoudiniEditorNodeSyncSubsystem->GetNodeSyncWorldInput(NodeSyncInput))
 			return false;
 
-		const TArray<UHoudiniInputObject*>* InputObjects = NodeSyncInput->GetHoudiniInputObjectArray(EHoudiniInputType::World);
+		const TArray<TObjectPtr<UHoudiniInputObject>>* InputObjects = NodeSyncInput->GetHoudiniInputObjectArray(EHoudiniInputType::World);
 		if (!InputObjects)
 			return false;
 

@@ -1322,7 +1322,7 @@ FHoudiniInputDetails::AddExportAsReferenceCheckBoxes(
 				if (CurInput->GetImportAsReference() == bNewState)
 					continue;
 
-				TArray<UHoudiniInputObject*>* InputObjs = CurInput->GetHoudiniInputObjectArray(CurInput->GetInputType());
+				TArray<TObjectPtr<UHoudiniInputObject>>* InputObjs = CurInput->GetHoudiniInputObjectArray(CurInput->GetInputType());
 				
 				if (InputObjs)
 				{
@@ -1401,7 +1401,7 @@ FHoudiniInputDetails::AddExportAsReferenceCheckBoxes(
 				if (CurInput->GetImportAsReferenceRotScaleEnabled() == bNewState)
 					continue;
 
-				TArray<UHoudiniInputObject*>* InputObjs = CurInput->GetHoudiniInputObjectArray(CurInput->GetInputType());
+				TArray<TObjectPtr<UHoudiniInputObject>>* InputObjs = CurInput->GetHoudiniInputObjectArray(CurInput->GetInputType());
 				if (InputObjs)
 				{
 					for (auto CurInputObj : *InputObjs)
@@ -1482,7 +1482,7 @@ FHoudiniInputDetails::AddExportAsReferenceCheckBoxes(
 				if (CurInput->GetImportAsReferenceBboxEnabled() == bNewState)
 					continue;
 
-				TArray<UHoudiniInputObject*>* InputObjs = CurInput->GetHoudiniInputObjectArray(CurInput->GetInputType());
+				TArray<TObjectPtr<UHoudiniInputObject>>* InputObjs = CurInput->GetHoudiniInputObjectArray(CurInput->GetInputType());
 				if (InputObjs)
 				{
 					for (auto CurInputObj : *InputObjs)
@@ -1564,7 +1564,7 @@ FHoudiniInputDetails::AddExportAsReferenceCheckBoxes(
 				if (CurInput->GetImportAsReferenceMaterialEnabled() == bNewState)
 					continue;
 
-				TArray<UHoudiniInputObject*>* InputObjs = CurInput->GetHoudiniInputObjectArray(CurInput->GetInputType());
+				TArray<TObjectPtr<UHoudiniInputObject>>* InputObjs = CurInput->GetHoudiniInputObjectArray(CurInput->GetInputType());
 				if (InputObjs)
 				{
 					for (auto CurInputObj : *InputObjs)
@@ -2201,7 +2201,7 @@ FHoudiniInputDetails::AddExportLandscapeAsOptions(
 		Input->SetHasLandscapeExportTypeChanged(true);
 		Input->MarkChanged(true);
 
-		TArray<UHoudiniInputObject*>* LandscapeInputObjectsArray = Input->GetHoudiniInputObjectArray(Input->GetInputType());
+		TArray<TObjectPtr<UHoudiniInputObject>>* LandscapeInputObjectsArray = Input->GetHoudiniInputObjectArray(Input->GetInputType());
 		if (!LandscapeInputObjectsArray)
 			return true;
 
@@ -3214,7 +3214,7 @@ FHoudiniInputDetails::AddCurveInputUI(
 			SNew(SButton)
 			.OnClicked_Lambda([InInputs, MainInput, &CategoryBuilder]()
 			{
-				TArray<UHoudiniInputObject*>* CurveInputComponentArray = MainInput->GetHoudiniInputObjectArray(EHoudiniInputType::Curve);
+				TArray<TObjectPtr<UHoudiniInputObject>>* CurveInputComponentArray = MainInput->GetHoudiniInputObjectArray(EHoudiniInputType::Curve);
 
 				// Detach all curves before deleting.
 				for (int n = CurveInputComponentArray->Num() - 1; n >= 0; n--)
@@ -3419,7 +3419,7 @@ FHoudiniInputDetails::Helper_CreateCurveWidgetExpanded(
 	if (!IsValid(OuterHAC))
 		return;
 
-	TArray<UHoudiniInputObject*>* CurveInputs = MainInput->GetHoudiniInputObjectArray(EHoudiniInputType::Curve);
+	TArray<TObjectPtr<UHoudiniInputObject>>* CurveInputs = MainInput->GetHoudiniInputObjectArray(EHoudiniInputType::Curve);
 	if (!CurveInputs)
 		return;
 
@@ -3446,7 +3446,7 @@ FHoudiniInputDetails::Helper_CreateCurveWidgetExpanded(
 			return FoundHoudiniSplineComponent;
 
 		// Get the TArray ptr to the curve objects in this input
-		TArray<UHoudiniInputObject*>* CurveInputComponentArray = InInput->GetHoudiniInputObjectArray(EHoudiniInputType::Curve);
+		TArray<TObjectPtr<UHoudiniInputObject>>* CurveInputComponentArray = InInput->GetHoudiniInputObjectArray(EHoudiniInputType::Curve);
 		if (!CurveInputComponentArray)
 			return FoundHoudiniSplineComponent;
 
@@ -3480,7 +3480,7 @@ FHoudiniInputDetails::Helper_CreateCurveWidgetExpanded(
 
 			CurInput->Modify();
 
-			TArray<UHoudiniInputObject*>* CurCurveInputs = CurInput->GetHoudiniInputObjectArray(EHoudiniInputType::Curve);
+			TArray<TObjectPtr<UHoudiniInputObject>>* CurCurveInputs = CurInput->GetHoudiniInputObjectArray(EHoudiniInputType::Curve);
 			if (!CurCurveInputs ||
 				CurveInputsNum != CurCurveInputs->Num() ||
 				!CurCurveInputs->IsValidIndex(InObjIdx))
@@ -4157,7 +4157,7 @@ FHoudiniInputDetails::Helper_CreateCurveWidgetExpanded(
 			if (!IsValid(OwnerActor))
 				continue;
 
-			TArray<UHoudiniInputObject*>* CurveInputComponentArray = NextInput->GetHoudiniInputObjectArray(EHoudiniInputType::Curve);
+			TArray<TObjectPtr<UHoudiniInputObject>>* CurveInputComponentArray = NextInput->GetHoudiniInputObjectArray(EHoudiniInputType::Curve);
 			if (!CurveInputComponentArray)
 				continue;
 
@@ -4263,7 +4263,7 @@ FHoudiniInputDetails::Helper_CreateCurveWidgetCollapsed(
 	if (!IsValid(OuterHAC))
 		return;
 
-	TArray<UHoudiniInputObject*>* CurveInputs = MainInput->GetHoudiniInputObjectArray(EHoudiniInputType::Curve);
+	TArray<TObjectPtr<UHoudiniInputObject>>* CurveInputs = MainInput->GetHoudiniInputObjectArray(EHoudiniInputType::Curve);
 	if (!CurveInputs)
 		return;
 
@@ -4462,7 +4462,7 @@ FHoudiniInputDetails::Helper_AddCurvePointSelectionUI(
 
 	UHoudiniSplineComponent* HoudiniSplineComponent = HoudiniSplineComponentVisualizer->GetEditedHoudiniSplineComponent();
 
-	TArray<UHoudiniInputObject*>* CurveInputs = MainInput->GetHoudiniInputObjectArray(EHoudiniInputType::Curve);
+	TArray<TObjectPtr<UHoudiniInputObject>>* CurveInputs = MainInput->GetHoudiniInputObjectArray(EHoudiniInputType::Curve);
 	if (!CurveInputs || CurveInputs->Num() <= 0)
 		return;
 
@@ -4728,7 +4728,7 @@ FHoudiniInputDetails::Helper_AddCurvePointSelectionUI(
 		if (!IsValidWeakPointer(MainInput))
 			return;
 
-		TArray<UHoudiniInputObject*>* CurveInputs = MainInput->GetHoudiniInputObjectArray(EHoudiniInputType::Curve);
+		TArray<TObjectPtr<UHoudiniInputObject>>* CurveInputs = MainInput->GetHoudiniInputObjectArray(EHoudiniInputType::Curve);
 		if (!CurveInputs)
 			return;
 
@@ -4809,7 +4809,7 @@ FHoudiniInputDetails::Helper_AddCurvePointSelectionUI(
 			if (!IsValidWeakPointer(CurInput))
 				continue;
 
-			TArray<UHoudiniInputObject*>* CurCurveInputs = CurInput->GetHoudiniInputObjectArray(EHoudiniInputType::Curve);
+			TArray<TObjectPtr<UHoudiniInputObject>>* CurCurveInputs = CurInput->GetHoudiniInputObjectArray(EHoudiniInputType::Curve);
 			if (!CurCurveInputs || !CurCurveInputs->IsValidIndex(SplineIdx))
 				continue;
 
@@ -4942,7 +4942,7 @@ FHoudiniInputDetails::Helper_AddCurvePointSelectionUI(
 		if (!IsValidWeakPointer(MainInput))
 			return;
 
-		TArray<UHoudiniInputObject*>* CurveInputs = MainInput->GetHoudiniInputObjectArray(EHoudiniInputType::Curve);
+		TArray<TObjectPtr<UHoudiniInputObject>>* CurveInputs = MainInput->GetHoudiniInputObjectArray(EHoudiniInputType::Curve);
 		if (!CurveInputs)
 			return;
 
@@ -4974,7 +4974,7 @@ FHoudiniInputDetails::Helper_AddCurvePointSelectionUI(
 			if (!IsValidWeakPointer(CurInput))
 				continue;
 
-			TArray<UHoudiniInputObject*>* CurCurveInputs = CurInput->GetHoudiniInputObjectArray(EHoudiniInputType::Curve);
+			TArray<TObjectPtr<UHoudiniInputObject>>* CurCurveInputs = CurInput->GetHoudiniInputObjectArray(EHoudiniInputType::Curve);
 			if (!CurCurveInputs || !CurCurveInputs->IsValidIndex(SplineIdx))
 				continue;
 
@@ -5020,7 +5020,7 @@ FHoudiniInputDetails::Helper_AddCurvePointSelectionUI(
 		if (!IsValidWeakPointer(MainInput))
 			return;
 
-		TArray<UHoudiniInputObject*>* CurveInputs = MainInput->GetHoudiniInputObjectArray(EHoudiniInputType::Curve);
+		TArray<TObjectPtr<UHoudiniInputObject>>* CurveInputs = MainInput->GetHoudiniInputObjectArray(EHoudiniInputType::Curve);
 		if (!CurveInputs)
 			return;
 
@@ -5052,7 +5052,7 @@ FHoudiniInputDetails::Helper_AddCurvePointSelectionUI(
 			if (!IsValidWeakPointer(CurInput))
 				continue;
 
-			TArray<UHoudiniInputObject*>* CurCurveInputs = CurInput->GetHoudiniInputObjectArray(EHoudiniInputType::Curve);
+			TArray<TObjectPtr<UHoudiniInputObject>>* CurCurveInputs = CurInput->GetHoudiniInputObjectArray(EHoudiniInputType::Curve);
 			if (!CurCurveInputs || !CurCurveInputs->IsValidIndex(SplineIdx))
 				continue;
 
@@ -5097,7 +5097,7 @@ FHoudiniInputDetails::Helper_AddCurvePointSelectionUI(
 		if (!IsValidWeakPointer(MainInput))
 			return;
 
-		TArray<UHoudiniInputObject*>* CurveInputs = MainInput->GetHoudiniInputObjectArray(EHoudiniInputType::Curve);
+		TArray<TObjectPtr<UHoudiniInputObject>>* CurveInputs = MainInput->GetHoudiniInputObjectArray(EHoudiniInputType::Curve);
 		if (!CurveInputs)
 			return;
 
@@ -5129,7 +5129,7 @@ FHoudiniInputDetails::Helper_AddCurvePointSelectionUI(
 			if (!IsValidWeakPointer(CurInput))
 				continue;
 
-			TArray<UHoudiniInputObject*>* CurCurveInputs = CurInput->GetHoudiniInputObjectArray(EHoudiniInputType::Curve);
+			TArray<TObjectPtr<UHoudiniInputObject>>* CurCurveInputs = CurInput->GetHoudiniInputObjectArray(EHoudiniInputType::Curve);
 			if (!CurCurveInputs || !CurCurveInputs->IsValidIndex(SplineIdx))
 				continue;
 
@@ -5616,7 +5616,7 @@ FHoudiniInputDetails::Helper_CreateWorldActorPickerWidget(const TArray<TWeakObje
 		if (!IsValidWeakPointer(MainInput))
 			return true;
 
-		const TArray<UHoudiniInputObject*>* InputObjects = MainInput->GetHoudiniInputObjectArray(EHoudiniInputType::World);
+		const TArray<TObjectPtr<UHoudiniInputObject>>* InputObjects = MainInput->GetHoudiniInputObjectArray(EHoudiniInputType::World);
 		if (!InputObjects)
 			return false;
 
@@ -5701,7 +5701,7 @@ FHoudiniInputDetails::Helper_CreateBoundSelectorPickerWidget(const TArray<TWeakO
 		if (!IsValid(Actor))
 			return false;
 
-		const TArray<AActor*>* BoundObjects = MainInput->GetBoundSelectorObjectArray();
+		const TArray<TObjectPtr<AActor>>* BoundObjects = MainInput->GetBoundSelectorObjectArray();
 		if (!BoundObjects)
 			return false;
 

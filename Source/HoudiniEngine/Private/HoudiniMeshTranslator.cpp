@@ -95,7 +95,7 @@ FHoudiniMeshTranslator::CreateAllMeshesAndComponentsFromHoudiniOutput(
 	bool bSplitMeshSupport,
 	const FHoudiniStaticMeshGenerationProperties& InSMGenerationProperties,
 	const FMeshBuildSettings& InMeshBuildSettings,
-	const TMap<FHoudiniMaterialIdentifier, UMaterialInterface*>& InAllOutputMaterials,
+	const TMap<FHoudiniMaterialIdentifier, TObjectPtr<UMaterialInterface>>& InAllOutputMaterials,
 	UObject* InOuterComponent,
 	bool bInTreatExistingMaterialsAsUpToDate,
 	bool bInDestroyProxies)
@@ -122,9 +122,10 @@ FHoudiniMeshTranslator::CreateAllMeshesAndComponentsFromHoudiniOutput(
 				Main.Add(curSplit);
 				break;
 
-			case EHoudiniSplitType::LOD:
-				LODs.Add(curSplit);
-				break;
+	TMap<FHoudiniOutputObjectIdentifier, FHoudiniOutputObject> NewOutputObjects;
+	TMap<FHoudiniOutputObjectIdentifier, FHoudiniOutputObject> OldOutputObjects = InOutput->GetOutputObjects();
+	TMap<FHoudiniMaterialIdentifier, TObjectPtr<UMaterialInterface>>& AssignementMaterials = InOutput->GetAssignementMaterials();
+	TMap<FHoudiniMaterialIdentifier, TObjectPtr<UMaterialInterface>>& ReplacementMaterials = InOutput->GetReplacementMaterials();
 
 			case EHoudiniSplitType::RenderedSimpleCollider:
 			case EHoudiniSplitType::RenderedUCXCollider:
@@ -503,7 +504,15 @@ FHoudiniMeshTranslator::UpdateSplitsFacesAndIndices()
 }
 
 void
-FHoudiniMeshTranslator::ResetPartCache()
+FHoudiniMeshTranslator::UpdateMeshComponent(
+	UMeshComponent *InMeshComponent, 
+	UObject* InMesh, 
+	const FHoudiniOutputObjectIdentifier &InOutputIdentifier,
+	const FHoudiniOutputObject& OutputObject,
+	const FHoudiniGeoPartObject *InHGPO, 
+	TArray<TObjectPtr<AActor>> &HoudiniCreatedSocketActors,
+	TArray<TObjectPtr<AActor>> &HoudiniAttachedSocketActors,
+	bool bInApplyGenericProperties)
 {
 	TRACE_CPUPROFILER_EVENT_SCOPE(TEXT("FHoudiniMeshTranslator::ResetPartCache"));
 
@@ -684,9 +693,9 @@ FHoudiniMeshTranslator::CreateStaticMeshFromHoudiniGeoPartObject(
 	const FHoudiniPackageParams& InPackageParams,
 	const TMap<FHoudiniOutputObjectIdentifier, FHoudiniOutputObject>& InOutputObjects,
 	TMap<FHoudiniOutputObjectIdentifier, FHoudiniOutputObject>& OutOutputObjects,
-	TMap<FHoudiniMaterialIdentifier, UMaterialInterface*>& AssignmentMaterialMap,
-	TMap<FHoudiniMaterialIdentifier, UMaterialInterface*>& ReplacementMaterialMap,
-	const TMap<FHoudiniMaterialIdentifier, UMaterialInterface*>& InAllOutputMaterials,
+	TMap<FHoudiniMaterialIdentifier, TObjectPtr<UMaterialInterface>>& AssignmentMaterialMap,
+	TMap<FHoudiniMaterialIdentifier, TObjectPtr<UMaterialInterface>>& ReplacementMaterialMap,
+	const TMap<FHoudiniMaterialIdentifier, TObjectPtr<UMaterialInterface>>& InAllOutputMaterials,
 	UObject* const InOuterComponent,
 	const bool& InForceRebuild,
 	EHoudiniStaticMeshMethod InStaticMeshMethod,
@@ -1912,6 +1921,287 @@ FHoudiniMeshTranslator::CreateStaticMesh_MeshDescription()
 	if (!UpdatePartVertexList())
 		return false;
 
+	// Sort the split groups
+	// Simple colliders first, lods and finally, invisible colliders (that are separate Static Mesh)
+	SortSplitGroups();
+
+	// Handles the split groups found in the part
+	// and builds the corresponding faces and indices arrays
+	if (!UpdateSplitsFacesAndIndices())
+		return true;
+
+	// Resets the containers used for the raw data extraction.
+	ResetPartCache();
+
+	// Prepare the object that will store UCX and simple colliders
+	AllAggregateCollisions.Empty();
+
+	// We need to know the number of LODs that will be needed for this part, and we also need the identifier for the
+	// main split (Normal or LOD0)
+	int32 NumberOfLODs = 0;
+	bool bHasMainGeo = false;
+	FHoudiniOutputObjectIdentifier MainIdentifier;
+	bool bHasMainIdentifier = false;
+	for (auto& curSplit : AllSplitGroups)
+	{
+		if (GetSplitTypeFromSplitName(curSplit) == EHoudiniSplitType::LOD)
+		{
+			NumberOfLODs++;
+			if (NumberOfLODs == 1 && !bHasMainGeo)
+			{
+				MainIdentifier = MakeOutputObjectIdentifier(curSplit, GetSplitTypeFromSplitName(curSplit));
+				bHasMainIdentifier = true;
+			}
+		}
+		else if (GetSplitTypeFromSplitName(curSplit) == EHoudiniSplitType::Normal)
+		{
+			bHasMainGeo = true;
+			MainIdentifier = MakeOutputObjectIdentifier(curSplit, GetSplitTypeFromSplitName(curSplit));
+			bHasMainIdentifier = true;
+		}
+	}
+
+	// Update the part's material's IDS and info now
+	CreateNeededMaterials();
+
+	// Check if the materials were updated
+	bool bMaterialHasChanged = false;
+	for (const auto& MatInfo : PartUniqueMaterialInfos)
+	{
+		if (MatInfo.hasChanged)
+		{
+			bMaterialHasChanged = true;
+			break;
+		}
+	}
+
+	// Get the current target platform for default lod policies
+	ITargetPlatform * CurrentPlatform = GetTargetPlatformManagerRef().GetRunningTargetPlatform();
+	check(CurrentPlatform);
+
+	// New mesh list
+	TMap<FHoudiniOutputObjectIdentifier, UStaticMesh*> StaticMeshToBuild;
+
+	// Map of Houdini Material IDs to Unreal Material Interface
+	TMap<HAPI_NodeId, TObjectPtr<UMaterialInterface>> MapHoudiniMatIdToUnrealInterface;
+	// Map of Houdini Material Attributes to Unreal Material Interface
+	TMap<FHoudiniMaterialIdentifier, TObjectPtr<UMaterialInterface>> MapHoudiniMatAttributesToUnrealInterface;
+	// Map of Unreal Material Interface to Unreal Material Index, per visible mesh
+	TMap<UStaticMesh*, TMap<TObjectPtr<UMaterialInterface>, int32>> MapUnrealMaterialInterfaceToUnrealIndexPerMesh;
+
+	bool MeshMaterialsHaveBeenReset = false;
+
+	double tick = FPlatformTime::Seconds();
+	if (bDoTiming)
+		HOUDINI_LOG_MESSAGE(TEXT("CreateStaticMesh_MeshDescription() - Pre Split-Loop in %f seconds."), tick - time_start);
+
+	UStaticMesh* MainStaticMesh = nullptr;
+	bool bAssignedCustomCollisionMesh = false;
+	ECollisionTraceFlag MainStaticMeshCTF = StaticMeshGenerationProperties.GeneratedCollisionTraceFlag;
+
+	// Map of object identifiers to package params
+	TMap<FHoudiniOutputObjectIdentifier, FHoudiniPackageParams> ObjectIdentifiersToPackageParams;
+
+	// Iterate through all detected split groups we care about and split geometry.
+	// The split are ordered in the following way:
+	// Invisible Simple/Convex Colliders > LODs > MainGeo > Visible Colliders > Invisible Colliders
+	for (int32 SplitId = 0; SplitId < AllSplitGroups.Num(); SplitId++)
+	{
+		double split_tick = FPlatformTime::Seconds();
+
+		// Get split group name
+		const FString& SplitGroupName = AllSplitGroups[SplitId];
+
+		// Get the vertex indices for this group
+		TArray<int32>& SplitVertexList = AllSplitVertexLists[SplitGroupName];
+
+		// Get valid count of vertex indices for this split.
+		const int32& SplitVertexCount = AllSplitVertexCounts[SplitGroupName];
+
+		// Make sure we have a	valid vertex count for this split
+		if (SplitVertexCount % 3 != 0 || SplitVertexList.Num() % 3 != 0)
+		{
+			// Invalid vertex count, skip this split or we'd crash trying to create a mesh for it.
+			HOUDINI_LOG_WARNING(
+				TEXT("Creating Static Meshes: Object [%d %s], Geo [%d], Part [%d %s], Split [%d %s] invalid vertex count.")
+				TEXT("- skipping."),
+				HGPO.ObjectId, *HGPO.ObjectName, HGPO.GeoId, HGPO.PartId, *HGPO.PartName, SplitId, *SplitGroupName);
+
+			continue;
+		}
+
+		// Get the current split type
+		EHoudiniSplitType SplitType = GetSplitTypeFromSplitName(SplitGroupName);
+		if (SplitType == EHoudiniSplitType::Invalid)
+		{
+			// Invalid split, skip
+			HOUDINI_LOG_WARNING(
+				TEXT("Creating Static Meshes: Object [%d %s], Geo [%d], Part [%d %s], Split [%d %s] unknown split type.")
+				TEXT("- skipping."),
+				HGPO.ObjectId, *HGPO.ObjectName, HGPO.GeoId, HGPO.PartId, *HGPO.PartName, SplitId, *SplitGroupName);
+			continue;
+		}
+
+		// Get the output identifer for this split
+		FHoudiniOutputObjectIdentifier OutputObjectIdentifier = MakeOutputObjectIdentifier(SplitGroupName, SplitType);
+
+		// Get/Create the Aggregate Collisions for this mesh identifier
+		FKAggregateGeom& AggregateCollisions = AllAggregateCollisions.FindOrAdd(OutputObjectIdentifier);
+
+		// Handle UCX / Convex Hull colliders
+		if (SplitType == EHoudiniSplitType::InvisibleUCXCollider || SplitType == EHoudiniSplitType::RenderedUCXCollider)
+		{
+			// Get the part position if needed
+			UpdatePartPositionIfNeeded();
+
+			// Create the convex hull colliders and add them to the Aggregate
+			if (!AddConvexCollisionToAggregate(SplitGroupName, AggregateCollisions))
+			{
+				MainStaticMeshCTF = ECollisionTraceFlag::CTF_UseDefault;
+				// Failed to generate a convex collider
+				HOUDINI_LOG_WARNING(
+					TEXT("Creating Static Meshes: Object [%d %s], Geo [%d], Part [%d %s], Split [%d %s] failed to create convex collider."),
+					HGPO.ObjectId, *HGPO.ObjectName, HGPO.GeoId, HGPO.PartId, *HGPO.PartName, SplitId, *SplitGroupName);
+			}
+
+			// If the collider is not visible, stop here
+			if (SplitType == EHoudiniSplitType::InvisibleUCXCollider)
+				continue;
+		}
+		else if (SplitType == EHoudiniSplitType::InvisibleSimpleCollider || SplitType == EHoudiniSplitType::RenderedSimpleCollider)
+		{
+			MainStaticMeshCTF = ECollisionTraceFlag::CTF_UseDefault;
+			// Get the part position if needed
+			UpdatePartPositionIfNeeded();
+
+			// Create the simple colliders and add them to the aggregate
+			if (!AddSimpleCollisionToAggregate(SplitGroupName, AggregateCollisions))
+			{
+				// Failed to generate a convex collider
+				HOUDINI_LOG_WARNING(
+					TEXT("Creating Static Meshes: Object [%d %s], Geo [%d], Part [%d %s], Split [%d %s] failed to create simple collider."),
+					HGPO.ObjectId, *HGPO.ObjectName, HGPO.GeoId, HGPO.PartId, *HGPO.PartName, SplitId, *SplitGroupName);
+			}
+
+			// If the collider is not visible, stop here
+			if (SplitType == EHoudiniSplitType::InvisibleSimpleCollider)
+				continue;
+		}
+
+		// Try to find existing properties for this identifier
+		// First check the OutputObjects (for LODs and Normal geo the same FHoudiniOutputObject entry is used, so
+		// we check OutputObjects first to see if we have already created/updated it for the main mesh)
+		FHoudiniOutputObject* FoundOutputObject = OutputObjects.Find(OutputObjectIdentifier);
+		if (!FoundOutputObject)
+			FoundOutputObject = InputObjects.Find(OutputObjectIdentifier);
+
+		// If we don't yet have package params for this object identifier, fetch and resolve attributes for the split
+		// and update the package params
+		TMap<FString, FString> TempAttributes;
+		TMap<FString, FString> TempTokens;
+		bool bCopyAttributesAndTokens = false;
+		if (!ObjectIdentifiersToPackageParams.Contains(OutputObjectIdentifier))
+		{
+			// Get all the supported attributes from the HGPO
+			// For LOD / Normal mesh we use the MainIdentifier to read attributes (Normal or LOD0) since they all
+			// go into the same mesh/package
+			if ((SplitType == EHoudiniSplitType::Normal || SplitType == EHoudiniSplitType::LOD) && bHasMainIdentifier)
+				CopyAttributesFromHGPOForSplit(MainIdentifier, TempAttributes, TempTokens);
+			else
+				CopyAttributesFromHGPOForSplit(OutputObjectIdentifier, TempAttributes, TempTokens);
+
+			// Resolve our final package params
+			FHoudiniAttributeResolver Resolver;
+			FHoudiniPackageParams FinalPackageParams;
+			FHoudiniEngineUtils::UpdatePackageParamsForTempOutputWithResolver(
+				InitialPackageParams,
+				IsValid(OuterComponent) ? OuterComponent->GetWorld() : nullptr,
+				OuterComponent,
+				TempAttributes,
+				TempTokens,
+				PackageParams,
+				Resolver);
+
+			bCopyAttributesAndTokens = true;
+			ObjectIdentifiersToPackageParams.Emplace(OutputObjectIdentifier, PackageParams);
+		}
+		else
+		{
+			PackageParams = ObjectIdentifiersToPackageParams.FindChecked(OutputObjectIdentifier);
+		}
+
+		// Try to find an existing SM from a previous cook
+		UStaticMesh* FoundStaticMesh = FindExistingStaticMesh(OutputObjectIdentifier);
+
+		// Flag whether or not we need to rebuild the mesh
+		bool bRebuildStaticMesh = false;
+		if (HGPO.GeoInfo.bHasGeoChanged || HGPO.PartInfo.bHasChanged || ForceRebuild || !FoundStaticMesh || !FoundOutputObject)
+			bRebuildStaticMesh = true;
+
+		// TODO: Handle materials
+		if (!bRebuildStaticMesh && !bMaterialHasChanged)
+		{
+			// We can simply reuse the found static mesh
+			OutputObjects.Add(OutputObjectIdentifier, *FoundOutputObject);
+			continue;
+		}
+
+		// Prepare LOD Group data for this static mesh
+		FStaticMeshLODGroup LODGroup;
+
+		bool bNewStaticMeshCreated = false;
+		if (!FoundStaticMesh)
+		{
+			// If we couldn't find a valid existing static mesh, create a new one
+			FoundStaticMesh = CreateNewUnrealStaticMesh(OutputObjectIdentifier.SplitIdentifier);
+			if (!IsValid(FoundStaticMesh))
+				continue;
+
+			bNewStaticMeshCreated = true;
+
+			// Use the platform's default LODGroup policy
+			// TODO? Add setting for default LOD Group?
+			LODGroup = CurrentPlatform->GetStaticMeshLODSettings().GetLODGroup(NAME_None);
+		}
+		else
+		{
+			// Try to reuse the existing SM's LOD group instead of the default one
+			LODGroup = CurrentPlatform->GetStaticMeshLODSettings().GetLODGroup(FoundStaticMesh->LODGroup);
+		}
+
+		if (SplitType == EHoudiniSplitType::Normal)
+		{
+			MainStaticMesh = FoundStaticMesh;
+			MainStaticMesh->ComplexCollisionMesh = nullptr;
+			MainStaticMesh->bCustomizedCollision = false;
+		}
+
+		if (!FoundOutputObject)
+		{
+			FHoudiniOutputObject NewOutputObject;
+			FoundOutputObject = &OutputObjects.Add(OutputObjectIdentifier, NewOutputObject);
+		}
+		FoundOutputObject->bProxyIsCurrent = false;
+
+		// Update the attributes and tokens if this is the first split for this object identifier
+		if (bCopyAttributesAndTokens)
+		{
+			FoundOutputObject->CachedAttributes = MoveTemp(TempAttributes);
+			FoundOutputObject->CachedTokens = MoveTemp(TempTokens);
+		}
+
+		// TODO: Needed?
+		// Free any RHI resources for existing mesh before we re-create in place.
+		FoundStaticMesh->PreEditChange(nullptr);
+
+		// Check that the Static Mesh we found has the appropriate number of Source models/LODs
+		int32 NeededNumberOfLODs = FMath::Max(NumberOfLODs + (bHasMainGeo ? 1 : 0), LODGroup.GetDefaultNumLODs());
+
+		// LODs are only for the "main" mesh, not for complex colliders!
+		if (SplitType == EHoudiniSplitType::InvisibleComplexCollider || SplitType == EHoudiniSplitType::RenderedComplexCollider)
+			NeededNumberOfLODs = FMath::Max(1, LODGroup.GetDefaultNumLODs());
+
+
 		if (FoundStaticMesh->GetNumSourceModels() != NeededNumberOfLODs)
 		{
 			while (FoundStaticMesh->GetNumSourceModels() < NeededNumberOfLODs)
@@ -2161,7 +2451,7 @@ FHoudiniMeshTranslator::CreateStaticMesh_MeshDescription()
 			{
 				FoundStaticMaterials.Empty();
 			}
-			TMap<UMaterialInterface*, int32>& MapUnrealMaterialInterfaceToUnrealMaterialIndexThisMesh = MapUnrealMaterialInterfaceToUnrealIndexPerMesh.FindOrAdd(FoundStaticMesh);
+			TMap<TObjectPtr<UMaterialInterface>, int32>& MapUnrealMaterialInterfaceToUnrealMaterialIndexThisMesh = MapUnrealMaterialInterfaceToUnrealIndexPerMesh.FindOrAdd(FoundStaticMesh);
 
 			// Get this split's faces
 			TArray<int32>& SplitGroupFaceIndices = AllSplitFaceIndices[SplitGroupName];
@@ -2180,7 +2470,7 @@ FHoudiniMeshTranslator::CreateStaticMesh_MeshDescription()
 				UMaterialInterface* MaterialInterface = Cast<UMaterialInterface>(FHoudiniEngine::Get().GetHoudiniDefaultMaterial(HGPO.bIsTemplated).Get());
 
 				// See if we have a replacement material and use it on the mesh instead
-				UMaterialInterface* const* ReplacementMaterial = ReplacementMaterials.Find(
+				TObjectPtr<UMaterialInterface> * ReplacementMaterial = ReplacementMaterials.Find(
 					FHoudiniMaterialIdentifier(HAPI_UNREAL_DEFAULT_MATERIAL_NAME, false, ""));
 				if (ReplacementMaterial && *ReplacementMaterial)
 					MaterialInterface = *ReplacementMaterial;
@@ -2208,12 +2498,12 @@ FHoudiniMeshTranslator::CreateStaticMesh_MeshDescription()
 					FString MaterialPathName = HAPI_UNREAL_DEFAULT_MATERIAL_NAME;
 					const bool bFoundHoudiniMaterial = FHoudiniMaterialTranslator::GetMaterialRelativePath(HGPO.AssetId, PartFaceMaterialIds[0], MaterialPathName);
 					const FHoudiniMaterialIdentifier DefaultMatIdentifier(MaterialPathName, bFoundHoudiniMaterial);
-					UMaterialInterface* const* FoundMaterial = OutputAssignmentMaterials.Find(DefaultMatIdentifier);
+					TObjectPtr<UMaterialInterface> * FoundMaterial = OutputAssignmentMaterials.Find(DefaultMatIdentifier);
 					if (FoundMaterial)
 						MaterialInterface = *FoundMaterial;
 
 					// See if we have a replacement material and use it on the mesh instead
-					UMaterialInterface* const* ReplacementMaterial = ReplacementMaterials.Find(DefaultMatIdentifier);
+					TObjectPtr<UMaterialInterface>* ReplacementMaterial = ReplacementMaterials.Find(DefaultMatIdentifier);
 					if (ReplacementMaterial && *ReplacementMaterial)
 						MaterialInterface = *ReplacementMaterial;
 
@@ -2239,7 +2529,7 @@ FHoudiniMeshTranslator::CreateStaticMesh_MeshDescription()
 						HAPI_NodeId MaterialId = PartFaceMaterialIds[SplitFaceIndex];
 
 						// See if we have already treated that material
-						UMaterialInterface** FoundMaterialInterface = MapHoudiniMatIdToUnrealInterface.Find(MaterialId);
+						TObjectPtr<UMaterialInterface>* FoundMaterialInterface = MapHoudiniMatIdToUnrealInterface.Find(MaterialId);
 						UMaterialInterface* MaterialInterface = nullptr;
 						if (FoundMaterialInterface)
 							MaterialInterface = *FoundMaterialInterface;
@@ -2261,12 +2551,12 @@ FHoudiniMeshTranslator::CreateStaticMesh_MeshDescription()
 							FString MaterialPathName = HAPI_UNREAL_DEFAULT_MATERIAL_NAME;
 							const bool bFoundHoudiniMaterial = FHoudiniMaterialTranslator::GetMaterialRelativePath(HGPO.AssetId, MaterialId, MaterialPathName);
 							const FHoudiniMaterialIdentifier DefaultMatIdentifier(MaterialPathName, bFoundHoudiniMaterial);
-							UMaterialInterface* const* FoundMaterial = OutputAssignmentMaterials.Find(DefaultMatIdentifier);
+							TObjectPtr<UMaterialInterface> * FoundMaterial = OutputAssignmentMaterials.Find(DefaultMatIdentifier);
 							if (FoundMaterial)
 								MaterialInterface = *FoundMaterial;
 
 							// See if we have a replacement material and use it on the mesh instead
-							UMaterialInterface* const* ReplacementMaterial = ReplacementMaterials.Find(DefaultMatIdentifier);
+							TObjectPtr<UMaterialInterface> * ReplacementMaterial = ReplacementMaterials.Find(DefaultMatIdentifier);
 							if (ReplacementMaterial && *ReplacementMaterial)
 								MaterialInterface = *ReplacementMaterial;
 
@@ -2310,7 +2600,7 @@ FHoudiniMeshTranslator::CreateStaticMesh_MeshDescription()
 						const FHoudiniMaterialIdentifier MaterialIdentifier = MatInfo.MakeIdentifier();
 						FString MaterialName = MatInfo.MaterialObjectPath;
 						ExtractMaterialIndex(MaterialName, MatIndex);
-						UMaterialInterface** FoundMaterialInterface = MapHoudiniMatAttributesToUnrealInterface.Find(MaterialIdentifier);
+						const TObjectPtr<UMaterialInterface>* FoundMaterialInterface = MapHoudiniMatAttributesToUnrealInterface.Find(MaterialIdentifier);
 						if (FoundMaterialInterface)
 							MaterialInterface = *FoundMaterialInterface;
 
@@ -2341,7 +2631,7 @@ FHoudiniMeshTranslator::CreateStaticMesh_MeshDescription()
 								OutputAssignmentMaterials.Add(MaterialIdentifier, MaterialInterface);
 								
 								// See if we have a replacement material and use it on the mesh instead
-								UMaterialInterface * const *ReplacementMaterialInterface = ReplacementMaterials.Find(MaterialIdentifier);
+								TObjectPtr<UMaterialInterface> *ReplacementMaterialInterface = ReplacementMaterials.Find(MaterialIdentifier);
 								if (ReplacementMaterialInterface && *ReplacementMaterialInterface)
 									MaterialInterface = *ReplacementMaterialInterface;
 
@@ -2372,7 +2662,7 @@ FHoudiniMeshTranslator::CreateStaticMesh_MeshDescription()
 								FString MaterialPathName = HAPI_UNREAL_DEFAULT_MATERIAL_NAME;
 								const bool bFoundHoudiniMaterial = FHoudiniMaterialTranslator::GetMaterialRelativePath(HGPO.AssetId, MaterialId, MaterialPathName);
 								const FHoudiniMaterialIdentifier DefaultMatIdentifier(MaterialPathName, bFoundHoudiniMaterial);
-								UMaterialInterface * const * FoundMaterial = OutputAssignmentMaterials.Find(DefaultMatIdentifier);
+								TObjectPtr<UMaterialInterface> * FoundMaterial = OutputAssignmentMaterials.Find(DefaultMatIdentifier);
 								if (FoundMaterial)
 									MaterialInterface = *FoundMaterial;
 
@@ -2382,7 +2672,7 @@ FHoudiniMeshTranslator::CreateStaticMesh_MeshDescription()
 									OutputAssignmentMaterials.Add(MaterialIdentifier, MaterialInterface);
 
 									// See if we have a replacement material and use it on the mesh instead
-									UMaterialInterface* const* ReplacementMaterialInterface = ReplacementMaterials.Find(DefaultMatIdentifier);
+									TObjectPtr<UMaterialInterface> * ReplacementMaterialInterface = ReplacementMaterials.Find(DefaultMatIdentifier);
 									if (ReplacementMaterialInterface && *ReplacementMaterialInterface)
 										MaterialInterface = *ReplacementMaterialInterface;
 
@@ -3112,10 +3402,30 @@ FHoudiniMeshTranslator::CreateHoudiniStaticMesh()
 		}
 	}
 
-	FHoudiniScopedGlobalSilence ScopedGlobalSilence;
-	for (auto& Current : StaticMeshToBuild)
-	{		
-		tick = FPlatformTime::Seconds();
+	// Map of Houdini Material IDs to Unreal Material Interface
+	TMap<HAPI_NodeId, TObjectPtr<UMaterialInterface>> MapHoudiniMatIdToUnrealInterface;
+	// Map of Houdini Material Attributes to Unreal Material Interface
+	TMap<FHoudiniMaterialIdentifier, TObjectPtr<UMaterialInterface>> MapHoudiniMatAttributesToUnrealInterface;
+	// Map of Unreal Material Interface to Unreal Material Index, per visible mesh
+	TMap<UHoudiniStaticMesh*, TMap<TObjectPtr<UMaterialInterface>, int32>> MapUnrealMaterialInterfaceToUnrealIndexPerMesh;
+
+	// bool MeshMaterialsHaveBeenReset = false;
+
+	double tick = FPlatformTime::Seconds();
+	if(bDoTiming)
+		HOUDINI_LOG_MESSAGE(TEXT("CreateHoudiniStaticMesh() - Pre Split-Loop in %f seconds."), tick - time_start);
+
+	// Map of object identifiers to package params
+	TMap<FHoudiniOutputObjectIdentifier, FHoudiniPackageParams> ObjectIdentifiersToPackageParams;
+
+	// Iterate through all detected split groups we care about and split geometry.
+	bool bMainGeoOrFirstLODFound = false;
+	for (int32 SplitId = 0; SplitId < AllSplitGroups.Num(); SplitId++)
+	{
+		TRACE_CPUPROFILER_EVENT_SCOPE(FHoudiniMeshTranslator::CreateHoudiniStaticMesh -- Per Split);
+
+		// Get split group name
+		const FString& SplitGroupName = AllSplitGroups[SplitId];
 
 		UStaticMesh* SM = Current.Value;
 		if (!IsValid(SM))
@@ -6738,11 +7048,7 @@ void FHoudiniMeshTranslator::ProcessMaterials(UStaticMesh* FoundStaticMesh, FHou
 				}
 			}
 		}
-	}
-	else
-	{
-		// Array used to avoid constantly attempting to load invalid materials
-		TArray<FString> InvalidMaterials;
+		TMap<TObjectPtr<UMaterialInterface>, int32>& MapUnrealMaterialInterfaceToUnrealMaterialIndexThisMesh = MapUnrealMaterialInterfaceToUnrealIndexPerMesh.FindOrAdd(FoundStaticMesh);
 
 		// If we have material overrides
 		for (int32 FaceIdx = 0; FaceIdx < SplitGroupFaceIndices.Num(); ++FaceIdx)
@@ -6762,9 +7068,7 @@ void FHoudiniMeshTranslator::ProcessMaterials(UStaticMesh* FoundStaticMesh, FHou
 				// This is so we have the correct size and create enough polygon groups later.
 				const FHoudiniMaterialInfo& MatInfo = PartFaceMaterialOverrides[SplitFaceIndex];
 				const FHoudiniMaterialIdentifier MaterialIdentifier = MatInfo.MakeIdentifier();
-				FString MaterialName = MatInfo.MaterialObjectPath;
-				ExtractMaterialIndex(MaterialName, MatIndex);
-				UMaterialInterface** FoundMaterialInterface = MapHoudiniMatAttributesToUnrealInterface.Find(MaterialIdentifier);
+				TObjectPtr<UMaterialInterface>* FoundMaterialInterface = MapHoudiniMatAttributesToUnrealInterface.Find(MaterialIdentifier);
 				if (FoundMaterialInterface)
 					MaterialInterface = *FoundMaterialInterface;
 
@@ -6777,12 +7081,60 @@ void FHoudiniMeshTranslator::ProcessMaterials(UStaticMesh* FoundStaticMesh, FHou
 					if (FoundMaterialInterface)
 						MaterialInterface = *FoundMaterialInterface;
 
-					if (!MaterialInterface && !MaterialName.IsEmpty() && !InvalidMaterials.Contains(MaterialName))
+					// Only try to load a material if it has a chance to be valid!
+					if (!MaterialInterface && MaterialIdentifier.IsValid() && !InvalidMaterials.Contains(MaterialIdentifier))
 					{
-						// Only try to load a material if has a chance to be valid!
-						MaterialInterface = Cast< UMaterialInterface >(
+						MaterialInterface = Cast<UMaterialInterface>(
 							StaticLoadObject(UMaterialInterface::StaticClass(),
-								nullptr, *MaterialName, nullptr, LOAD_NoWarn, nullptr));
+								nullptr, *MaterialIdentifier.MaterialObjectPath, nullptr, LOAD_NoWarn, nullptr));
+
+						if (!MaterialInterface)
+							InvalidMaterials.Add(MaterialIdentifier);
+					}
+
+					if (MaterialInterface)
+					{
+						// We managed to load the UE4 material
+						// Make sure this material is in the assignments before replacing it.
+						OutputAssignmentMaterials.Add(MaterialIdentifier, MaterialInterface);
+
+						// See if we have a replacement material and use it on the mesh instead
+						TObjectPtr<UMaterialInterface>* ReplacementMaterialInterface = ReplacementMaterials.Find(MaterialIdentifier);
+						if (ReplacementMaterialInterface && *ReplacementMaterialInterface)
+							MaterialInterface = *ReplacementMaterialInterface;
+
+						// Add this material to the map
+						MapHoudiniMatAttributesToUnrealInterface.Add(MaterialIdentifier, MaterialInterface);
+					}
+					else
+					{
+						// The Attribute Material and its replacement do not exist
+						// See if we can fallback to the Houdini material assigned on the face
+
+						// Get the unreal material corresponding to this houdini one
+						HAPI_NodeId MaterialId = PartFaceMaterialIds[SplitFaceIndex];
+
+						// See if we have already treated that material
+						FoundMaterialInterface = MapHoudiniMatIdToUnrealInterface.Find(MaterialId);
+						if (FoundMaterialInterface)
+							MaterialInterface = *FoundMaterialInterface;
+						if (!MaterialInterface)
+						{
+							// If everything fails, we'll use the default material
+							MaterialInterface = Cast<UMaterialInterface>(FHoudiniEngine::Get().GetHoudiniDefaultMaterial(HGPO.bIsTemplated).Get());
+
+							// We need to add this material to the map
+							FString MaterialPathName = HAPI_UNREAL_DEFAULT_MATERIAL_NAME;
+							const bool bFoundHoudiniMaterial = FHoudiniMaterialTranslator::GetMaterialRelativePath(HGPO.AssetId, MaterialId, MaterialPathName);
+							const FHoudiniMaterialIdentifier DefaultMatIdentifier(MaterialPathName, bFoundHoudiniMaterial);
+							TObjectPtr<UMaterialInterface>* FoundMaterial = OutputAssignmentMaterials.Find(DefaultMatIdentifier);
+							if (FoundMaterial)
+								MaterialInterface = *FoundMaterial;
+
+							// See if we have a replacement material and use it on the mesh instead
+							TObjectPtr<UMaterialInterface>* ReplacementMaterial = ReplacementMaterials.Find(DefaultMatIdentifier);
+							if (ReplacementMaterial && *ReplacementMaterial)
+								MaterialInterface = *ReplacementMaterial;
 
 						if (!MaterialInterface)
 							InvalidMaterials.Add(MaterialName);
@@ -6819,12 +7171,12 @@ void FHoudiniMeshTranslator::ProcessMaterials(UStaticMesh* FoundStaticMesh, FHou
 				FString MaterialPathName = HAPI_UNREAL_DEFAULT_MATERIAL_NAME;
 				const bool bFoundHoudiniMaterial = FHoudiniMaterialTranslator::GetMaterialRelativePath(HGPO.AssetId, PartFaceMaterialIds[0], MaterialPathName);
 				const FHoudiniMaterialIdentifier DefaultMatIdentifier(MaterialPathName, bFoundHoudiniMaterial);
-				UMaterialInterface * const * FoundMaterial = OutputAssignmentMaterials.Find(DefaultMatIdentifier);
+				TObjectPtr<UMaterialInterface> * FoundMaterial = OutputAssignmentMaterials.Find(DefaultMatIdentifier);
 				if (FoundMaterial)
 					MaterialInterface = *FoundMaterial;
 
 				// See if we have a replacement material and use it on the mesh instead
-				UMaterialInterface * const * ReplacementMaterial = ReplacementMaterials.Find(DefaultMatIdentifier);
+				TObjectPtr<UMaterialInterface> * ReplacementMaterial = ReplacementMaterials.Find(DefaultMatIdentifier);
 				if (ReplacementMaterial && *ReplacementMaterial)
 					MaterialInterface = *ReplacementMaterial;
 
@@ -6849,7 +7201,7 @@ void FHoudiniMeshTranslator::ProcessMaterials(UStaticMesh* FoundStaticMesh, FHou
 					HAPI_NodeId MaterialId = PartFaceMaterialIds[SplitFaceIndex];
 
 					// See if we have already treated that material
-					UMaterialInterface** FoundMaterialInterface = MapHoudiniMatIdToUnrealInterface.Find(MaterialId);
+					TObjectPtr<UMaterialInterface>* FoundMaterialInterface = MapHoudiniMatIdToUnrealInterface.Find(MaterialId);
 					UMaterialInterface* MaterialInterface = nullptr;
 					if (FoundMaterialInterface)
 						MaterialInterface = *FoundMaterialInterface;
@@ -6871,12 +7223,12 @@ void FHoudiniMeshTranslator::ProcessMaterials(UStaticMesh* FoundStaticMesh, FHou
 						FString MaterialPathName = HAPI_UNREAL_DEFAULT_MATERIAL_NAME;
 						const bool bFoundHoudiniMaterial = FHoudiniMaterialTranslator::GetMaterialRelativePath(HGPO.AssetId, MaterialId, MaterialPathName);
 						const FHoudiniMaterialIdentifier DefaultMatIdentifier(MaterialPathName, bFoundHoudiniMaterial);
-						UMaterialInterface * const * FoundMaterial = OutputAssignmentMaterials.Find(DefaultMatIdentifier);
+						TObjectPtr<UMaterialInterface> * FoundMaterial = OutputAssignmentMaterials.Find(DefaultMatIdentifier);
 						if (FoundMaterial)
 							MaterialInterface = *FoundMaterial;
 
 						// See if we have a replacement material and use it on the mesh instead
-						UMaterialInterface * const * ReplacementMaterial = ReplacementMaterials.Find(DefaultMatIdentifier);
+						TObjectPtr<UMaterialInterface> * ReplacementMaterial = ReplacementMaterials.Find(DefaultMatIdentifier);
 						if (ReplacementMaterial && *ReplacementMaterial)
 							MaterialInterface = *ReplacementMaterial;
 
@@ -6906,7 +7258,7 @@ void FHoudiniMeshTranslator::ProcessMaterials(UStaticMesh* FoundStaticMesh, FHou
 			UMaterialInterface * MaterialInterface = Cast<UMaterialInterface>(FHoudiniEngine::Get().GetHoudiniDefaultMaterial(HGPO.bIsTemplated).Get());
 
 			// See if we have a replacement material and use it on the mesh instead
-			UMaterialInterface * const * ReplacementMaterial = ReplacementMaterials.Find(
+			TObjectPtr<UMaterialInterface> * ReplacementMaterial = ReplacementMaterials.Find(
 				FHoudiniMaterialIdentifier(HAPI_UNREAL_DEFAULT_MATERIAL_NAME, false, ""));
 			if (ReplacementMaterial && *ReplacementMaterial)
 				MaterialInterface = *ReplacementMaterial;
@@ -6937,6 +7289,219 @@ void FHoudiniMeshTranslator::ProcessMaterials(UStaticMesh* FoundStaticMesh, FHou
 			HOUDINI_LOG_WARNING(
 				TEXT("[CreateHoudiniStaticMesh]: Invalid StaticMesh data for %s in cook output! Please check the log."),
 				*FoundStaticMesh->GetName());
+		}
+
+		//// Try to find the outer package so we can dirty it up
+		//if (FoundStaticMesh->GetOuter())
+		//{
+		//	FoundStaticMesh->GetOuter()->MarkPackageDirty();
+		//}
+		//else
+		//{
+		//	FoundStaticMesh->MarkPackageDirty();
+		//}
+		UPackage *MeshPackage = FoundStaticMesh->GetOutermost();
+		if (IsValid(MeshPackage))
+		{
+			MeshPackage->MarkPackageDirty();
+			
+			/*
+			// DPT: deactivated auto saving mesh/material package
+			// only dirty for now, as we'll save them when saving the world.
+			// Save the created/updated package
+			FEditorFileUtils::PromptForCheckoutAndSave({ MeshPackage }, false, false);
+			*/
+		}
+
+		// Add the Proxy mesh to the output maps
+		if (FoundOutputObject)
+		{
+			FoundOutputObject->ProxyObject = FoundStaticMesh;
+			FoundOutputObject->bProxyIsCurrent = true;
+			OutputObjects.FindOrAdd(OutputObjectIdentifier, *FoundOutputObject);
+		}
+	}
+
+	const double time_end = FPlatformTime::Seconds();
+	HOUDINI_LOG_MESSAGE(TEXT("CreateHoudiniStaticMesh() executed in %f seconds."), time_end - time_start);
+
+	return true;
+}
+
+void
+FHoudiniMeshTranslator::ApplyComplexColliderHelper(
+	UStaticMesh* TargetStaticMesh,
+	UStaticMesh* ComplexStaticMesh,
+	const EHoudiniSplitType SplitType,
+	bool& bAssignedCustomCollisionMesh,
+	FHoudiniOutputObject* OutputObject)
+{
+	if (SplitType == EHoudiniSplitType::InvisibleComplexCollider && TargetStaticMesh)
+	{
+		if (!bAssignedCustomCollisionMesh)
+		{
+			bAssignedCustomCollisionMesh = true;
+			TargetStaticMesh->ComplexCollisionMesh = ComplexStaticMesh;
+			TargetStaticMesh->bCustomizedCollision = true;
+			bAssignedCustomCollisionMesh = true;
+			// We don't want an actor/component for this object in the scene, so flag it as an implicit output.
+			if (OutputObject)
+			{
+				OutputObject->bIsImplicit = true;
+			}
+		}
+		else
+		{
+			HOUDINI_LOG_WARNING(TEXT("More than one (invisible) complex collision mesh found. Static Mesh assets only support a single complex collision mesh. Creating additional collision geo as Static Mesh Components."));
+		}
+	}
+}
+
+
+bool
+FHoudiniMeshTranslator::CreateNeededMaterials()
+{
+	TRACE_CPUPROFILER_EVENT_SCOPE(FHoudiniMeshTranslator::CreateNeededMaterials);
+
+	UpdatePartNeededMaterials();
+
+	// Update package params with resolved attributes
+	TMap<FString, FString> Attributes;
+	TMap<FString, FString> Tokens;
+	FHoudiniAttributeResolver Resolver;
+	FHoudiniPackageParams FinalPackageParams;
+
+	// Get the attributes from normal geo, or first LOD if there is no normal geo. Fallback to use index 0.
+	FString SplitToUse;
+	for (const FString& SplitGroupName : AllSplitGroups)
+	{
+		const EHoudiniSplitType SplitType = GetSplitTypeFromSplitName(SplitGroupName);
+		if (SplitType == EHoudiniSplitType::Normal)
+		{
+			SplitToUse = SplitGroupName;
+			break;
+		}
+		else if (SplitType == EHoudiniSplitType::LOD && SplitToUse.IsEmpty())
+		{
+			SplitToUse = SplitGroupName;
+			// don't break here since we might still find normal geo after the LOD splits
+		}
+	}
+
+	if (!SplitToUse.IsEmpty())
+	{
+		CopyAttributesFromHGPOForSplit(SplitToUse, Attributes, Tokens);
+	}
+	else
+	{
+		CopyAttributesFromHGPOForSplit(HGPO, 0, 0, Attributes, Tokens);
+	}
+	
+	FHoudiniEngineUtils::UpdatePackageParamsForTempOutputWithResolver(
+		PackageParams,
+		IsValid(OuterComponent) ? OuterComponent->GetWorld() : nullptr,
+		OuterComponent,
+		Attributes,
+		Tokens,
+		FinalPackageParams,
+		Resolver);
+	
+	TArray<UPackage*> MaterialAndTexturePackages;
+
+	TArray<UMaterialInterface*> OutMaterialArray;
+
+	FinalPackageParams.OverideEnabled = false;
+	FHoudiniMaterialTranslator::CreateHoudiniMaterials(
+		HGPO.AssetId,
+		FinalPackageParams,
+		PartUniqueMaterialIds,
+		PartUniqueMaterialInfos,
+		InputAssignmentMaterials,
+		AllOutputMaterials,
+		OutputAssignmentMaterials,
+		OutMaterialArray,
+		MaterialAndTexturePackages,
+		false, 
+		bTreatExistingMaterialsAsUpToDate);
+
+	if (bMaterialOverrideNeedsCreateInstance && PartFaceMaterialOverrides.Num() > 0)
+	{
+		// Map containing unique face materials override attribute
+		// and their first valid prim index
+		// We create only one material instance per attribute
+
+		FHoudiniMaterialTranslator::SortUniqueFaceMaterialOverridesAndCreateMaterialInstances(PartFaceMaterialOverrides, HGPO, PackageParams, MaterialAndTexturePackages,
+			InputAssignmentMaterials, OutputAssignmentMaterials,
+			false);
+	}
+
+	return true;
+}
+
+bool
+FHoudiniMeshTranslator::ExtractMaterialIndex(FString& MaterialName, int32& MatIndex)
+{
+	// Attempt to extract an index
+	if (MaterialName.StartsWith("["))
+	{
+		int32 End = MaterialName.Find("]");
+		if (End != -1)
+		{
+			FString Fragment = MaterialName.Mid(1, End - 1);
+			if (FCString::IsNumeric(*Fragment))
+			{
+				MatIndex = FCString::Atoi(*Fragment);
+				MaterialName = MaterialName.Mid(End + 1);
+			}
+		}
+	}
+	// correct invalid index
+	if (MatIndex < -1)
+	{
+		MaterialName = "[" + FString::FromInt(MatIndex) + "]" + MaterialName;
+		MatIndex = -1;
+	}
+
+	return true;
+}
+
+int32
+FHoudiniMeshTranslator::GetFaceMaterialIndex(UMaterialInterface* MaterialInterface,
+	TMap<TObjectPtr<UMaterialInterface>, int32>& MapUnrealMaterialInterfaceToUnrealMaterialIndexThisMesh,
+	int32 MatIndex,
+	TArray<FStaticMaterial>& FoundStaticMaterials)
+{
+	int32 CurrentFaceMaterialIdx = 0;
+	// only rely on our map if no index specified in the attribute value
+	int32 const* FoundFaceMaterialIdx = MapUnrealMaterialInterfaceToUnrealMaterialIndexThisMesh.Find(MaterialInterface);
+	if (FoundFaceMaterialIdx && MatIndex == -1)
+	{
+		// We already know what material index to use for that override
+		CurrentFaceMaterialIdx = *FoundFaceMaterialIdx;
+	}
+	else
+	{
+		// assign a default index for this mat
+		if (MatIndex == -1)
+		{
+			CurrentFaceMaterialIdx = FoundStaticMaterials.Add(FStaticMaterial(MaterialInterface));
+			MapUnrealMaterialInterfaceToUnrealMaterialIndexThisMesh.Add(MaterialInterface, CurrentFaceMaterialIdx);
+		}
+		// else, there is a specific index specified in the attrib value
+		else
+		{
+			// add the mat to the mesh's material list if needed
+			if (FoundStaticMaterials.Num() <= MatIndex || FoundStaticMaterials[MatIndex].MaterialInterface == nullptr)
+			{
+				FoundStaticMaterials.Reserve(MatIndex + 1);
+				// pad with empty materials
+				while (FoundStaticMaterials.Num() <= MatIndex)
+				{
+					FoundStaticMaterials.Add(FStaticMaterial());
+				}
+				FoundStaticMaterials[MatIndex] = FStaticMaterial(MaterialInterface);
+			}
+			CurrentFaceMaterialIdx = MatIndex;
 		}
 
 					// Get the unreal material corresponding to this houdini one
@@ -8665,13 +9230,9 @@ void FHoudiniMeshTranslator::BuildHoudiniMesh(const FString& SplitGroupName, UHo
 	}
 }
 
-void
-FHoudiniMeshTranslator::ProcessMaterialsForHSM(
-	const FString& SplitGroupName, 
-	UHoudiniStaticMesh* FoundStaticMesh,
-	TMap<HAPI_NodeId, UMaterialInterface*> & MapHoudiniMatIdToUnrealInterface,
-	TMap<FHoudiniMaterialIdentifier, UMaterialInterface*> & MapHoudiniMatAttributesToUnrealInterface,
-	TMap<UHoudiniStaticMesh*, TMap<UMaterialInterface*, int32>> & MapUnrealMaterialInterfaceToUnrealIndexPerMesh)
+bool 
+FHoudiniMeshTranslator::AddActorsToMeshSocket(UStaticMeshSocket * Socket, UStaticMeshComponent * StaticMeshComponent, 
+		TArray<TObjectPtr<AActor>> & HoudiniCreatedSocketActors, TArray<TObjectPtr<AActor>> & HoudiniAttachedSocketActors)
 {
 	// Get face indices for this split.
 	TArray<int32>& SplitFaceIndices = AllSplitFaceIndices[SplitGroupName];
@@ -9134,11 +9695,11 @@ void FHoudiniMeshTranslator::BuildMeshDescription(FMeshDescription* MeshDescript
 void FHoudiniMeshTranslator::ProcessMaterials(UStaticMesh* FoundStaticMesh, FHoudiniGroupedMeshPrimitives& SplitMeshData)
 {
 	// Map of Houdini Material IDs to Unreal Material Interface
-	TMap<HAPI_NodeId, UMaterialInterface*> MapHoudiniMatIdToUnrealInterface;
+	TMap<HAPI_NodeId, TObjectPtr<UMaterialInterface>> MapHoudiniMatIdToUnrealInterface;
 	// Map of Houdini Material Attributes to Unreal Material Interface
-	TMap<FHoudiniMaterialIdentifier, UMaterialInterface*> MapHoudiniMatAttributesToUnrealInterface;
+	TMap<FHoudiniMaterialIdentifier, TObjectPtr<UMaterialInterface>> MapHoudiniMatAttributesToUnrealInterface;
 	// Map of Unreal Material Interface to Unreal Material Index, per visible mesh
-	TMap<UStaticMesh*, TMap<UMaterialInterface*, int32>> MapUnrealMaterialInterfaceToUnrealIndexPerMesh;
+	TMap<UStaticMesh*, TMap<TObjectPtr<UMaterialInterface>, int32>> MapUnrealMaterialInterfaceToUnrealIndexPerMesh;
 
 	//ONEONE
 
@@ -9162,7 +9723,7 @@ void FHoudiniMeshTranslator::ProcessMaterials(UStaticMesh* FoundStaticMesh, FHou
 	{
 		FoundStaticMaterials.Empty();
 	}
-	TMap<UMaterialInterface*, int32>& MapUnrealMaterialInterfaceToUnrealMaterialIndexThisMesh = MapUnrealMaterialInterfaceToUnrealIndexPerMesh.FindOrAdd(FoundStaticMesh);
+	TMap<TObjectPtr<UMaterialInterface>, int32>& MapUnrealMaterialInterfaceToUnrealMaterialIndexThisMesh = MapUnrealMaterialInterfaceToUnrealIndexPerMesh.FindOrAdd(FoundStaticMesh);
 
 	// Get this split's faces
 	TArray<int32>& SplitGroupFaceIndices = AllSplitFaceIndices[SplitMeshData.SplitGroupName];
@@ -9181,7 +9742,7 @@ void FHoudiniMeshTranslator::ProcessMaterials(UStaticMesh* FoundStaticMesh, FHou
 		UMaterialInterface* MaterialInterface = Cast<UMaterialInterface>(FHoudiniEngine::Get().GetHoudiniDefaultMaterial(HGPO.bIsTemplated).Get());
 
 		// See if we have a replacement material and use it on the mesh instead
-		UMaterialInterface* const* ReplacementMaterial = ReplacementMaterials.Find(
+		TObjectPtr<UMaterialInterface> * ReplacementMaterial = ReplacementMaterials.Find(
 			FHoudiniMaterialIdentifier(HAPI_UNREAL_DEFAULT_MATERIAL_NAME, false, ""));
 		if (ReplacementMaterial && *ReplacementMaterial)
 			MaterialInterface = *ReplacementMaterial;
@@ -9204,12 +9765,12 @@ void FHoudiniMeshTranslator::ProcessMaterials(UStaticMesh* FoundStaticMesh, FHou
 			FString MaterialPathName = HAPI_UNREAL_DEFAULT_MATERIAL_NAME;
 			const bool bFoundHoudiniMaterial = FHoudiniMaterialTranslator::GetMaterialRelativePath(HGPO.AssetId, PartFaceMaterialIds[0], MaterialPathName);
 			const FHoudiniMaterialIdentifier DefaultMatIdentifier(MaterialPathName, bFoundHoudiniMaterial);
-			UMaterialInterface* const* FoundMaterial = OutputAssignmentMaterials.Find(DefaultMatIdentifier);
+			TObjectPtr<UMaterialInterface>* FoundMaterial = OutputAssignmentMaterials.Find(DefaultMatIdentifier);
 			if (FoundMaterial)
 				MaterialInterface = *FoundMaterial;
 
 			// See if we have a replacement material and use it on the mesh instead
-			UMaterialInterface* const* ReplacementMaterial = ReplacementMaterials.Find(DefaultMatIdentifier);
+			TObjectPtr<UMaterialInterface> * ReplacementMaterial = ReplacementMaterials.Find(DefaultMatIdentifier);
 			if (ReplacementMaterial && *ReplacementMaterial)
 				MaterialInterface = *ReplacementMaterial;
 
@@ -9235,7 +9796,7 @@ void FHoudiniMeshTranslator::ProcessMaterials(UStaticMesh* FoundStaticMesh, FHou
 				HAPI_NodeId MaterialId = PartFaceMaterialIds[SplitFaceIndex];
 
 				// See if we have already treated that material
-				UMaterialInterface** FoundMaterialInterface = MapHoudiniMatIdToUnrealInterface.Find(MaterialId);
+				TObjectPtr<UMaterialInterface>* FoundMaterialInterface = MapHoudiniMatIdToUnrealInterface.Find(MaterialId);
 				UMaterialInterface* MaterialInterface = nullptr;
 				if (FoundMaterialInterface)
 					MaterialInterface = *FoundMaterialInterface;
@@ -9257,12 +9818,12 @@ void FHoudiniMeshTranslator::ProcessMaterials(UStaticMesh* FoundStaticMesh, FHou
 					FString MaterialPathName = HAPI_UNREAL_DEFAULT_MATERIAL_NAME;
 					const bool bFoundHoudiniMaterial = FHoudiniMaterialTranslator::GetMaterialRelativePath(HGPO.AssetId, MaterialId, MaterialPathName);
 					const FHoudiniMaterialIdentifier DefaultMatIdentifier(MaterialPathName, bFoundHoudiniMaterial);
-					UMaterialInterface* const* FoundMaterial = OutputAssignmentMaterials.Find(DefaultMatIdentifier);
+					TObjectPtr<UMaterialInterface>* FoundMaterial = OutputAssignmentMaterials.Find(DefaultMatIdentifier);
 					if (FoundMaterial)
 						MaterialInterface = *FoundMaterial;
 
 					// See if we have a replacement material and use it on the mesh instead
-					UMaterialInterface* const* ReplacementMaterial = ReplacementMaterials.Find(DefaultMatIdentifier);
+					TObjectPtr<UMaterialInterface> * ReplacementMaterial = ReplacementMaterials.Find(DefaultMatIdentifier);
 					if (ReplacementMaterial && *ReplacementMaterial)
 						MaterialInterface = *ReplacementMaterial;
 
@@ -9306,7 +9867,7 @@ void FHoudiniMeshTranslator::ProcessMaterials(UStaticMesh* FoundStaticMesh, FHou
 				const FHoudiniMaterialIdentifier MaterialIdentifier = MatInfo.MakeIdentifier();
 				FString MaterialName = MatInfo.MaterialObjectPath;
 				ExtractMaterialIndex(MaterialName, MatIndex);
-				UMaterialInterface** FoundMaterialInterface = MapHoudiniMatAttributesToUnrealInterface.Find(MaterialIdentifier);
+				TObjectPtr<UMaterialInterface>* FoundMaterialInterface = MapHoudiniMatAttributesToUnrealInterface.Find(MaterialIdentifier);
 				if (FoundMaterialInterface)
 					MaterialInterface = *FoundMaterialInterface;
 
@@ -9337,7 +9898,7 @@ void FHoudiniMeshTranslator::ProcessMaterials(UStaticMesh* FoundStaticMesh, FHou
 						OutputAssignmentMaterials.Add(MaterialIdentifier, MaterialInterface);
 
 						// See if we have a replacement material and use it on the mesh instead
-						UMaterialInterface* const* ReplacementMaterialInterface = ReplacementMaterials.Find(MaterialIdentifier);
+						TObjectPtr<UMaterialInterface> * ReplacementMaterialInterface = ReplacementMaterials.Find(MaterialIdentifier);
 						if (ReplacementMaterialInterface && *ReplacementMaterialInterface)
 							MaterialInterface = *ReplacementMaterialInterface;
 
@@ -9368,12 +9929,12 @@ void FHoudiniMeshTranslator::ProcessMaterials(UStaticMesh* FoundStaticMesh, FHou
 						FString MaterialPathName = HAPI_UNREAL_DEFAULT_MATERIAL_NAME;
 						const bool bFoundHoudiniMaterial = FHoudiniMaterialTranslator::GetMaterialRelativePath(HGPO.AssetId, MaterialId, MaterialPathName);
 						const FHoudiniMaterialIdentifier DefaultMatIdentifier(MaterialPathName, bFoundHoudiniMaterial);
-						UMaterialInterface* const* FoundMaterial = OutputAssignmentMaterials.Find(DefaultMatIdentifier);
+						TObjectPtr<UMaterialInterface>* FoundMaterial = OutputAssignmentMaterials.Find(DefaultMatIdentifier);
 						if (FoundMaterial)
 							MaterialInterface = *FoundMaterial;
 
 						// See if we have a replacement material and use it on the mesh instead
-						UMaterialInterface* const* ReplacementMaterialInterface = ReplacementMaterials.Find(DefaultMatIdentifier);
+						TObjectPtr<UMaterialInterface> * ReplacementMaterialInterface = ReplacementMaterials.Find(DefaultMatIdentifier);
 						if (ReplacementMaterialInterface && *ReplacementMaterialInterface)
 							MaterialInterface = *ReplacementMaterialInterface;
 
@@ -10304,9 +10865,9 @@ FHoudiniMeshTranslator::CreateHoudiniStaticMeshesFromSplitGroups()
 	// Loop through and build each mesh.
 	//-----------------------------------------------------------------------------------------------------------------------------------------------
 
-	TMap<HAPI_NodeId, UMaterialInterface*> MapHoudiniMatIdToUnrealInterface;
-	TMap<FHoudiniMaterialIdentifier, UMaterialInterface*> MapHoudiniMatAttributesToUnrealInterface;
-	TMap<UHoudiniStaticMesh*, TMap<UMaterialInterface*, int32>> MapUnrealMaterialInterfaceToUnrealIndexPerMesh;
+	TMap<HAPI_NodeId, TObjectPtr<UMaterialInterface>> MapHoudiniMatIdToUnrealInterface;
+	TMap<FHoudiniMaterialIdentifier, TObjectPtr<UMaterialInterface>> MapHoudiniMatAttributesToUnrealInterface;
+	TMap<UHoudiniStaticMesh*, TMap<TObjectPtr<UMaterialInterface>, int32>> MapUnrealMaterialInterfaceToUnrealIndexPerMesh;
 
 	for (auto& It : MeshesToBuild.Meshes)
 	{
@@ -10335,9 +10896,9 @@ FHoudiniMeshTranslator::CreateHoudiniStaticMeshesFromSplitGroups()
 
 bool
 FHoudiniMeshTranslator::CreateHoudiniStaticMeshFromSplitGroups(const FString& MeshName, FHoudiniSplitGroupMesh& SplitMeshData,
-	TMap<HAPI_NodeId, UMaterialInterface*> & MapHoudiniMatIdToUnrealInterface,
-	TMap<FHoudiniMaterialIdentifier, UMaterialInterface*> & MapHoudiniMatAttributesToUnrealInterface,
-	TMap<UHoudiniStaticMesh*, TMap<UMaterialInterface*, int32>> & MapUnrealMaterialInterfaceToUnrealIndexPerMesh)
+	TMap<HAPI_NodeId, TObjectPtr<UMaterialInterface>> & MapHoudiniMatIdToUnrealInterface,
+	TMap<FHoudiniMaterialIdentifier, TObjectPtr<UMaterialInterface>> & MapHoudiniMatAttributesToUnrealInterface,
+	TMap<UHoudiniStaticMesh*, TMap<TObjectPtr<UMaterialInterface>, int32>> & MapUnrealMaterialInterfaceToUnrealIndexPerMesh)
 {
 	double tick = FPlatformTime::Seconds();
 
@@ -10950,9 +11511,9 @@ void
 FHoudiniMeshTranslator::ProcessMaterialsForHSM(
 	const FString& SplitGroupName, 
 	UHoudiniStaticMesh* FoundStaticMesh,
-	TMap<HAPI_NodeId, UMaterialInterface*> & MapHoudiniMatIdToUnrealInterface,
-	TMap<FHoudiniMaterialIdentifier, UMaterialInterface*> & MapHoudiniMatAttributesToUnrealInterface,
-	TMap<UHoudiniStaticMesh*, TMap<UMaterialInterface*, int32>> & MapUnrealMaterialInterfaceToUnrealIndexPerMesh)
+	TMap<HAPI_NodeId, TObjectPtr<UMaterialInterface>> & MapHoudiniMatIdToUnrealInterface,
+	TMap<FHoudiniMaterialIdentifier, TObjectPtr<UMaterialInterface>> & MapHoudiniMatAttributesToUnrealInterface,
+	TMap<UHoudiniStaticMesh*, TMap<TObjectPtr<UMaterialInterface>, int32>> & MapUnrealMaterialInterfaceToUnrealIndexPerMesh)
 {
 	// Get face indices for this split.
 	TArray<int32>& SplitFaceIndices = AllSplitFaceIndices[SplitGroupName];
@@ -10965,7 +11526,7 @@ FHoudiniMeshTranslator::ProcessMaterialsForHSM(
 	{
 		FoundStaticMaterials.Empty();
 	}
-	TMap<UMaterialInterface*, int32>& MapUnrealMaterialInterfaceToUnrealMaterialIndexThisMesh = MapUnrealMaterialInterfaceToUnrealIndexPerMesh.FindOrAdd(FoundStaticMesh);
+	TMap<TObjectPtr<UMaterialInterface>, int32>& MapUnrealMaterialInterfaceToUnrealMaterialIndexThisMesh = MapUnrealMaterialInterfaceToUnrealIndexPerMesh.FindOrAdd(FoundStaticMesh);
 
 	// Process material overrides first
 	if (PartFaceMaterialOverrides.Num() > 0)
@@ -10985,7 +11546,7 @@ FHoudiniMeshTranslator::ProcessMaterialsForHSM(
 			int32 CurrentFaceMaterialIdx = 0;
 			const FHoudiniMaterialInfo& MatInfo = PartFaceMaterialOverrides[SplitFaceIndex];
 			const FHoudiniMaterialIdentifier MaterialIdentifier = MatInfo.MakeIdentifier();
-			UMaterialInterface** FoundMaterialInterface = MapHoudiniMatAttributesToUnrealInterface.Find(MaterialIdentifier);
+			TObjectPtr<UMaterialInterface>* FoundMaterialInterface = MapHoudiniMatAttributesToUnrealInterface.Find(MaterialIdentifier);
 			if (FoundMaterialInterface)
 				MaterialInterface = *FoundMaterialInterface;
 
@@ -11016,7 +11577,7 @@ FHoudiniMeshTranslator::ProcessMaterialsForHSM(
 					OutputAssignmentMaterials.Add(MaterialIdentifier, MaterialInterface);
 
 					// See if we have a replacement material and use it on the mesh instead
-					UMaterialInterface* const* ReplacementMaterialInterface = ReplacementMaterials.Find(MaterialIdentifier);
+					TObjectPtr<UMaterialInterface> * ReplacementMaterialInterface = ReplacementMaterials.Find(MaterialIdentifier);
 					if (ReplacementMaterialInterface && *ReplacementMaterialInterface)
 						MaterialInterface = *ReplacementMaterialInterface;
 
@@ -11044,12 +11605,12 @@ FHoudiniMeshTranslator::ProcessMaterialsForHSM(
 						FString MaterialPathName = HAPI_UNREAL_DEFAULT_MATERIAL_NAME;
 						const bool bFoundHoudiniMaterial = FHoudiniMaterialTranslator::GetMaterialRelativePath(HGPO.AssetId, MaterialId, MaterialPathName);
 						const FHoudiniMaterialIdentifier DefaultMatIdentifier(MaterialPathName, bFoundHoudiniMaterial);
-						UMaterialInterface* const* FoundMaterial = OutputAssignmentMaterials.Find(DefaultMatIdentifier);
+						TObjectPtr<UMaterialInterface> * FoundMaterial = OutputAssignmentMaterials.Find(DefaultMatIdentifier);
 						if (FoundMaterial)
 							MaterialInterface = *FoundMaterial;
 
 						// See if we have a replacement material and use it on the mesh instead
-						UMaterialInterface* const* ReplacementMaterial = ReplacementMaterials.Find(DefaultMatIdentifier);
+						TObjectPtr<UMaterialInterface> * ReplacementMaterial = ReplacementMaterials.Find(DefaultMatIdentifier);
 						if (ReplacementMaterial && *ReplacementMaterial)
 							MaterialInterface = *ReplacementMaterial;
 
@@ -11084,12 +11645,12 @@ FHoudiniMeshTranslator::ProcessMaterialsForHSM(
 			FString MaterialPathName = HAPI_UNREAL_DEFAULT_MATERIAL_NAME;
 			const bool bFoundHoudiniMaterial = FHoudiniMaterialTranslator::GetMaterialRelativePath(HGPO.AssetId, PartFaceMaterialIds[0], MaterialPathName);
 			const FHoudiniMaterialIdentifier DefaultMatIdentifier(MaterialPathName, bFoundHoudiniMaterial);
-			UMaterialInterface* const* FoundMaterial = OutputAssignmentMaterials.Find(DefaultMatIdentifier);
+			TObjectPtr<UMaterialInterface>* FoundMaterial = OutputAssignmentMaterials.Find(DefaultMatIdentifier);
 			if (FoundMaterial)
 				MaterialInterface = *FoundMaterial;
 
 			// See if we have a replacement material and use it on the mesh instead
-			UMaterialInterface* const* ReplacementMaterial = ReplacementMaterials.Find(DefaultMatIdentifier);
+			TObjectPtr<UMaterialInterface> * ReplacementMaterial = ReplacementMaterials.Find(DefaultMatIdentifier);
 			if (ReplacementMaterial && *ReplacementMaterial)
 				MaterialInterface = *ReplacementMaterial;
 
@@ -11114,7 +11675,7 @@ FHoudiniMeshTranslator::ProcessMaterialsForHSM(
 				HAPI_NodeId MaterialId = PartFaceMaterialIds[SplitFaceIndex];
 
 				// See if we have already treated that material
-				UMaterialInterface** FoundMaterialInterface = MapHoudiniMatIdToUnrealInterface.Find(MaterialId);
+				TObjectPtr<UMaterialInterface>* FoundMaterialInterface = MapHoudiniMatIdToUnrealInterface.Find(MaterialId);
 				UMaterialInterface* MaterialInterface = nullptr;
 				if (FoundMaterialInterface)
 					MaterialInterface = *FoundMaterialInterface;
@@ -11136,12 +11697,12 @@ FHoudiniMeshTranslator::ProcessMaterialsForHSM(
 					FString MaterialPathName = HAPI_UNREAL_DEFAULT_MATERIAL_NAME;
 					const bool bFoundHoudiniMaterial = FHoudiniMaterialTranslator::GetMaterialRelativePath(HGPO.AssetId, MaterialId, MaterialPathName);
 					const FHoudiniMaterialIdentifier DefaultMatIdentifier(MaterialPathName, bFoundHoudiniMaterial);
-					UMaterialInterface* const* FoundMaterial = OutputAssignmentMaterials.Find(DefaultMatIdentifier);
+					TObjectPtr<UMaterialInterface>* FoundMaterial = OutputAssignmentMaterials.Find(DefaultMatIdentifier);
 					if (FoundMaterial)
 						MaterialInterface = *FoundMaterial;
 
 					// See if we have a replacement material and use it on the mesh instead
-					UMaterialInterface* const* ReplacementMaterial = ReplacementMaterials.Find(DefaultMatIdentifier);
+					TObjectPtr<UMaterialInterface> * ReplacementMaterial = ReplacementMaterials.Find(DefaultMatIdentifier);
 					if (ReplacementMaterial && *ReplacementMaterial)
 						MaterialInterface = *ReplacementMaterial;
 
@@ -11171,7 +11732,7 @@ FHoudiniMeshTranslator::ProcessMaterialsForHSM(
 		UMaterialInterface* MaterialInterface = Cast<UMaterialInterface>(FHoudiniEngine::Get().GetHoudiniDefaultMaterial(HGPO.bIsTemplated).Get());
 
 		// See if we have a replacement material and use it on the mesh instead
-		UMaterialInterface* const* ReplacementMaterial = ReplacementMaterials.Find(
+		TObjectPtr<UMaterialInterface> * ReplacementMaterial = ReplacementMaterials.Find(
 			FHoudiniMaterialIdentifier(HAPI_UNREAL_DEFAULT_MATERIAL_NAME, false, ""));
 		if (ReplacementMaterial && *ReplacementMaterial)
 			MaterialInterface = *ReplacementMaterial;
