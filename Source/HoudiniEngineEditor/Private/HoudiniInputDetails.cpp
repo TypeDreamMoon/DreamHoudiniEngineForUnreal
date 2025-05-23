@@ -3742,7 +3742,7 @@ FHoudiniInputDetails::Helper_CreateCurveWidgetExpanded(
 			})
 			.OnCheckStateChanged_Lambda([=](ECheckBoxState NewState)
 			{
-				return ChangedVisibleCurve(NewState);
+				return ChangedReversedCurve(NewState);
 			})
 		]
 		+ SHorizontalBox::Slot()
