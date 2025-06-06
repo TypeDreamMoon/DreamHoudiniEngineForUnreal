@@ -2261,7 +2261,7 @@ FHoudiniInputTranslator::HapiCreateInputNodeForStaticMesh(
 			InInputSettings.bExportLODs,
 			InInputSettings.bExportSockets,
 			InInputSettings.bExportColliders,
-			true,
+			InInputSettings.bExportMainGeometry,
 			bInputNodesCanBeDeleted,
 			InInputSettings.bPreferNaniteFallbackMesh,
 			InInputSettings.bExportMaterialParameters,
@@ -3070,7 +3070,17 @@ FHoudiniInputTranslator::HapiCreateInputNodeForSkeletalMesh(
 	else
 	{
 		bSuccess = FUnrealSkeletalMeshTranslator::HapiCreateInputNodeForSkeletalMesh(
-			SkelMesh, CreatedNodeId, SKName, SKMInputNodeHandle, nullptr, InInputSettings.bExportLODs, InInputSettings.bExportSockets, InInputSettings.bExportColliders, true, bInputNodesCanBeDeleted, InInputSettings.bExportMaterialParameters );
+			SkelMesh, 
+			CreatedNodeId,
+			SKName,
+			SKMInputNodeHandle, 
+			nullptr,
+			InInputSettings.bExportLODs,
+			InInputSettings.bExportSockets,
+			InInputSettings.bExportColliders,
+			InInputSettings.bExportMainGeometry,
+			bInputNodesCanBeDeleted,
+			InInputSettings.bExportMaterialParameters );
 
 		if(!bSuccess)
 		{
@@ -3160,7 +3170,17 @@ FHoudiniInputTranslator::HapiCreateInputNodeForSkeletalMeshComponent(
 	else
 	{
 		bSuccess = FUnrealSkeletalMeshTranslator::HapiCreateInputNodeForSkeletalMesh(
-			SK, CreatedNodeId, SKCName, InputNodeHandle, SKC, InInputSettings.bExportLODs, InInputSettings.bExportSockets, InInputSettings.bExportColliders, true, bInputNodesCanBeDeleted, InInputSettings.bExportMaterialParameters);
+			SK,
+			CreatedNodeId,
+			SKCName,
+			InputNodeHandle,
+			SKC, 
+			InInputSettings.bExportLODs,
+			InInputSettings.bExportSockets,
+			InInputSettings.bExportColliders,
+			InInputSettings.bExportMainGeometry,
+			bInputNodesCanBeDeleted, 
+			InInputSettings.bExportMaterialParameters);
 	}
 
 	// Create/update the node in the input manager
@@ -3602,7 +3622,7 @@ FHoudiniInputTranslator::HapiCreateInputNodeForStaticMeshComponent(
 			InInputSettings.bExportLODs, 
 			InInputSettings.bExportSockets, 
 			InInputSettings.bExportColliders,
-			true, 
+			InInputSettings.bExportMainGeometry, 
 			bInputNodesCanBeDeleted, 
 			InInputSettings.bPreferNaniteFallbackMesh,
 			InInputSettings.bExportMaterialParameters,
@@ -3813,7 +3833,7 @@ FHoudiniInputTranslator::HapiCreateInputNodeForSplineMeshComponents(
 		InInputSettings.bExportLODs, 
 		InInputSettings.bExportSockets, 
 		InInputSettings.bExportColliders,
-		true, 
+		InInputSettings.bExportMainGeometry, 
 		bInputNodesCanBeDeleted, 
 		InInputSettings.bPreferNaniteFallbackMesh,
 		InInputSettings.bExportMaterialParameters,

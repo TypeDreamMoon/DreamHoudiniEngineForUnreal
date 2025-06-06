@@ -2064,8 +2064,8 @@ FHoudiniMeshTranslator::CreateStaticMesh_MeshDescription()
 					HGPO.ObjectId, *HGPO.ObjectName, HGPO.GeoId, HGPO.PartId, *HGPO.PartName, SplitId, *SplitGroupName);
 			}
 
-			// If the collider is not visible, stop here
-			if (SplitType == EHoudiniSplitType::InvisibleUCXCollider)
+			// If the collider is not visible, stop here - unless if we dont have mainGeo
+			if (SplitType == EHoudiniSplitType::InvisibleUCXCollider && bHasMainGeo)
 				continue;
 		}
 		else if (SplitType == EHoudiniSplitType::InvisibleSimpleCollider || SplitType == EHoudiniSplitType::RenderedSimpleCollider)
@@ -2083,8 +2083,8 @@ FHoudiniMeshTranslator::CreateStaticMesh_MeshDescription()
 					HGPO.ObjectId, *HGPO.ObjectName, HGPO.GeoId, HGPO.PartId, *HGPO.PartName, SplitId, *SplitGroupName);
 			}
 
-			// If the collider is not visible, stop here
-			if (SplitType == EHoudiniSplitType::InvisibleSimpleCollider)
+			// If the collider is not visible, stop here - unless if we dont have a main geo
+			if (SplitType == EHoudiniSplitType::InvisibleSimpleCollider && bHasMainGeo)
 				continue;
 		}
 
