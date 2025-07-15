@@ -147,6 +147,7 @@
 	#include "Engine/SkinnedAssetCommon.h"
 #endif
 
+#include "Animation/Skeleton.h"
 #include "Engine/DataTable.h"
 #include "Kismet2/StructureEditorUtils.h"
 #include "UObject/TextProperty.h"
@@ -474,49 +475,6 @@ FHoudiniEngineBakeUtils::DeleteBakedDataTableObjects(TArray<FHoudiniBakedOutput>
 	}
 }
 
-
-void
-FHoudiniEngineBakeUtils::DeleteBakedDataTableObjects(TArray<FHoudiniBakedOutput>& InBakedOutputs)
-{
-	// Must remove data tables before their structures to prevent Unreal complaining.
-
-	for (FHoudiniBakedOutput& BakedOutput : InBakedOutputs)
-	{
-		for (auto& It : BakedOutput.BakedOutputObjects)
-		{
-			FHoudiniBakedOutputObject& BakedObjectOutput = It.Value;
-			UObject* Object = It.Value.GetBakedObjectIfValid();
-
-			if (!IsValid(Object))
-				continue;
-
-			if (Object->IsA<UDataTable>())
-			{
-				FHoudiniEngineUtils::ForceDeleteObject(Object);
-				It.Value.BakedObject.Empty();
-			}
-		}
-	}
-
-	// Now remove the structures.
-	for (FHoudiniBakedOutput& BakedOutput : InBakedOutputs)
-	{
-		for (auto& It : BakedOutput.BakedOutputObjects)
-		{
-			UObject* Object = It.Value.GetBakedObjectIfValid();
-
-			if (!IsValid(Object))
-				continue;
-
-			if (Object->IsA<UUserDefinedStruct>() || Object->IsA<UUserDefinedStructEditorData>())
-			{
-				FHoudiniEngineUtils::ForceDeleteObject(Object);
-				It.Value.BakedObject.Empty();
-			}
-		}
-	}
-}
-
 bool
 FHoudiniEngineBakeUtils::BakeHoudiniOutputsToActors(
 	UHoudiniAssetComponent* HoudiniAssetComponent,
@@ -547,14 +505,6 @@ FHoudiniEngineBakeUtils::BakeHoudiniOutputsToActors(
 		// Make sure all old data tables are removed prior to baking. Data tables must be fully deleted
 		// before creating new data tables with the same new or Unreal gets very upset.
 		DeleteBakedDataTableObjects(InBakeState.GetOldBakedOutputs());
-	}
-
-
-	if (bInReplaceAssets)
-	{
-		// Make sure all old data tables are removed prior to baking. Data tables must be fully deleted
-		// before creating new data tables with the same new or Unreal gets very upset.
-		DeleteBakedDataTableObjects(InBakedOutputs);
 	}
 
 
@@ -714,17 +664,15 @@ FHoudiniEngineBakeUtils::BakeHoudiniOutputsToActors(
 				HoudiniAssetComponent,
 				OutputIdx,
 				InOutputs,
-				InBakedOutputs,
+				InBakeState,
 				InBakeFolder,
 				InTempCookFolder,
-				bInReplaceActors,
-				bInReplaceAssets,
+				BakeSettings,
 				AllBakedActors,
 				OutputBakedActors,
-				OutPackagesToSave,
+				BakedObjectData,
 				AlreadyBakedStaticMeshMap,
 				AlreadyBakedMaterialsMap,
-				OutBakeStats,
 				InFallbackActor,
 				InFallbackWorldOutlinerFolder);
 			}
@@ -2457,6 +2405,7 @@ FHoudiniEngineBakeUtils::BakeInstancerOutputToActors_IAC(
 				EditorUtilities::ECopyOptions::CallPostEditChangeProperty |
 				EditorUtilities::ECopyOptions::CallPostEditMove);
 
+			// BUG: CopyActorProperties are not copying properties for components (at least on Blueprint type actors).
 			EditorUtilities::CopyActorProperties(CurrentInstancedActor, NewActor, CopyOptions);
 
 			// TODO: Copy over component properties!
@@ -4282,18 +4231,16 @@ bool FHoudiniEngineBakeUtils::BakeGeometryCollectionOutputToActors(
 	const UHoudiniAssetComponent* HoudiniAssetComponent,
 	int32 InOutputIndex, 
 	const TArray<UHoudiniOutput*>& InAllOutputs, 
-	TArray<FHoudiniBakedOutput>& InBakedOutputs,
+	FHoudiniEngineBakeState& InBakeState,
 	const FDirectoryPath& InBakeFolder, 
 	const FDirectoryPath& InTempCookFolder,
-	bool bInReplaceActors, 
-	bool bInReplaceAssets, 
+	const FHoudiniBakeSettings& BakeSettings,
 	const TArray<FHoudiniEngineBakedActor>& InBakedActors, 
 	TArray<FHoudiniEngineBakedActor>& OutActors,
-	TArray<UPackage*>& OutPackagesToSave, 
+	FHoudiniBakedObjectData& BakedObjectData,
 	TMap<UStaticMesh*, UStaticMesh*>& InOutAlreadyBakedStaticMeshMap,
 	TMap<UMaterialInterface *, 
 	UMaterialInterface *>& InOutAlreadyBakedMaterialsMap,
-	FHoudiniEngineOutputStats& OutBakeStats, 
 	AActor* InFallbackActor, 
 	const FString& InFallbackWorldOutlinerFolder)
 {
@@ -8009,8 +7956,7 @@ bool FHoudiniEngineBakeUtils::BakePDGAssetLinkOutputsKeepActors(
 	EPDGBakeSelectionOption InBakeSelectionOption,
 	EPDGBakePackageReplaceModeOption InPDGBakePackageReplaceMode,
 	bool bInRecenterBakedActors,
-	TArray<UPackage*>& PackagesToSave,
-	FHoudiniEngineOutputStats& BakeStats,
+	FHoudiniBakedObjectData& BakedObjectData, 
 	TArray<FHoudiniEngineBakedActor>& BakedActors)
 {
 	if (!IsValid(InPDGAssetLink))
@@ -8033,17 +7979,17 @@ bool FHoudiniEngineBakeUtils::BakePDGAssetLinkOutputsKeepActors(
 				if (!IsValid(Node))
 					continue;
 
-				bSuccess &= BakePDGTOPNodeOutputsKeepActors(InPDGAssetLink, Node, bBakeBlueprints, bIsAutoBake, InPDGBakePackageReplaceMode, BakedActors, PackagesToSave, BakeStats);
+				bSuccess &= BakePDGTOPNodeOutputsKeepActors(InPDGAssetLink, Node, bBakeBlueprints, bIsAutoBake, InPDGBakePackageReplaceMode, BakedActors, BakedObjectData);
 			}
 		}
 		break;
 
 	case EPDGBakeSelectionOption::SelectedNetwork:
-		bSuccess = BakePDGTOPNetworkOutputsKeepActors(InPDGAssetLink, InPDGAssetLink->GetSelectedTOPNetwork(), bBakeBlueprints, bIsAutoBake, InPDGBakePackageReplaceMode, BakedActors, PackagesToSave, BakeStats);
+		bSuccess = BakePDGTOPNetworkOutputsKeepActors(InPDGAssetLink, InPDGAssetLink->GetSelectedTOPNetwork(), bBakeBlueprints, bIsAutoBake, InPDGBakePackageReplaceMode, BakedActors, BakedObjectData);
 		break;
 
 	case EPDGBakeSelectionOption::SelectedNode:
-		bSuccess = BakePDGTOPNodeOutputsKeepActors(InPDGAssetLink, InPDGAssetLink->GetSelectedTOPNode(), bBakeBlueprints, bIsAutoBake, InPDGBakePackageReplaceMode, BakedActors, PackagesToSave, BakeStats);
+		bSuccess = BakePDGTOPNodeOutputsKeepActors(InPDGAssetLink, InPDGAssetLink->GetSelectedTOPNode(), bBakeBlueprints, bIsAutoBake, InPDGBakePackageReplaceMode, BakedActors, BakedObjectData);
 		break;
 	}
 
@@ -8070,7 +8016,7 @@ bool FHoudiniEngineBakeUtils::BakePDGAssetLinkOutputsKeepActors(
 
 	{
 		const FString FinishedTemplate = TEXT("Baking finished. Created {0} packages. Updated {1} packages.");
-		FString Msg = FString::Format(*FinishedTemplate, { BakeStats.NumPackagesCreated, BakeStats.NumPackagesUpdated });
+		FString Msg = FString::Format(*FinishedTemplate, { BakedObjectData.BakeStats.NumPackagesCreated, BakedObjectData.BakeStats.NumPackagesUpdated });
 		FHoudiniEngine::Get().FinishTaskSlateNotification(FText::FromString(Msg));
 	}
 
@@ -8087,8 +8033,7 @@ FHoudiniEngineBakeUtils::BakePDGAssetLinkOutputsKeepActors(
 	EPDGBakePackageReplaceModeOption InPDGBakePackageReplaceMode, 
 	bool bInRecenterBakedActors)
 {
-	TArray<UPackage*> PackagesToSave;
-	FHoudiniEngineOutputStats BakeStats;
+	FHoudiniBakedObjectData BakedObjectData;
 	TArray<FHoudiniEngineBakedActor> BakedActors;
 
 	bool bSuccess = BakePDGAssetLinkOutputsKeepActors(
@@ -8096,8 +8041,7 @@ FHoudiniEngineBakeUtils::BakePDGAssetLinkOutputsKeepActors(
 		InBakeSelectionOption,
 		InPDGBakePackageReplaceMode,
 		bInRecenterBakedActors,
-		PackagesToSave,
-		BakeStats,
+		BakedObjectData,
 		BakedActors);
 
 	return bSuccess;

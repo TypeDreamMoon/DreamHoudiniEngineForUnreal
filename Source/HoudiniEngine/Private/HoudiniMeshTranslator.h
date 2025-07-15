@@ -133,6 +133,8 @@ struct FHoudiniSplitGroupMesh
 	// If this mesh is to be used a custom complex collider, this is its name.
 	FString CustomCollisionOwner;
 
+	bool bIsVisible = true;
+
 	// Static Mesh generated.
 	UStaticMesh* UnrealStaticMesh = nullptr;
 	UHoudiniStaticMesh * HoudiniStaticMesh = nullptr;

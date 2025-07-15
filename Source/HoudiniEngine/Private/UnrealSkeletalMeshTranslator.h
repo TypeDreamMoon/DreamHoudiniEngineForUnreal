@@ -68,8 +68,8 @@ struct HOUDINIENGINE_API FUnrealSkeletalMeshTranslator
 			const bool& bInputNodesCanBeDeleted,
 			const bool& bExportMaterialParameters);
 
-		// Actually exports the skeletal mesh data (mesh, skeleton ... ) to the newly created input node - returns true on success
-		static bool SetSkeletalMeshDataOnNode(
+		// Actually exports the skeletal mesh data (mesh, skeleton ... ) using LOD's SourceModel to the newly created input node - returns true on success
+		static bool SetSkeletalMeshDataOnNodeFromSourceModel(
 			USkeletalMesh* SkeletalMesh,
 			USkeletalMeshComponent* SkeletalMeshComponent,
 			HAPI_NodeId& NewNodeId,

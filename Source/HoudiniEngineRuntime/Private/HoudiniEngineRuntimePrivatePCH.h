@@ -292,4 +292,3 @@ struct FHoudiniScopedGlobalSilence
 
 	bool bGlobalSilent;
 };
-

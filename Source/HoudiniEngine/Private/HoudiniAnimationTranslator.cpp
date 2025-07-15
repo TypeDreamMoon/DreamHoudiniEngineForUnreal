@@ -103,7 +103,7 @@ FHoudiniAnimationTranslator::IsMotionClipFrame(const HAPI_NodeId& GeoId, const H
 	return true;
 }
 
-void 
+bool 
 FHoudiniAnimationTranslator::CreateAnimSequenceFromOutput(
 	UHoudiniOutput* InOutput,
 	const FHoudiniPackageParams& InPackageParams,
@@ -112,7 +112,7 @@ FHoudiniAnimationTranslator::CreateAnimSequenceFromOutput(
 
 	//Loop over hgpo in Output cand
 	const TArray<FHoudiniGeoPartObject>& HGPOs = InOutput->GetHoudiniGeoPartObjects(); 
-	CreateAnimationFromMotionClip(InOutput, HGPOs, InPackageParams, InOuterComponent);
+	return CreateAnimationFromMotionClip(InOutput, HGPOs, InPackageParams, InOuterComponent);
 }
 
 UAnimSequence*
@@ -656,7 +656,13 @@ bool FHoudiniAnimationTranslator::CreateAnimationFromMotionClip(UHoudiniOutput* 
 		// Set the fbx_custom_attributes as anim curves.
 		for (const auto& Entry : FbxCustomAttributes )
 		{
+#if ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION >= 3
 			FAnimationCurveIdentifier CurveId(FName(Entry.Key), ERawCurveTrackTypes::RCT_Float);
+#else
+			FSmartName NewName;
+			MySkeleton->AddSmartNameAndModify(USkeleton::AnimCurveMappingName, FName(Entry.Key), NewName);
+			FAnimationCurveIdentifier CurveId(NewName, ERawCurveTrackTypes::RCT_Float);
+#endif
 			if (Entry.Value.Num() && AnimController.AddCurve(CurveId))
 			{
 				

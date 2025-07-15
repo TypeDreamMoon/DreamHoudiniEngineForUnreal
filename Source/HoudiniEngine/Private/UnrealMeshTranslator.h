@@ -70,32 +70,6 @@ struct HOUDINIENGINE_API FUnrealMeshTranslator
 			const bool& bExportMaterialParameters,
 			const bool& bForceReferenceInputNodeCreation);
 
-		// HAPI : Marshaling, extract geometry and skeletons and create input nodes for it - return true on success
-		static bool HapiCreateInputNodeForSkeletalMesh(
-			USkeletalMesh* Mesh,
-			HAPI_NodeId& InputObjectNodeId,
-			const FString& InputNodeName,
-			FUnrealObjectInputHandle& OutHandle,
-			class USkeletalMeshComponent* SkeletalMeshComponent = nullptr,
-			const bool& ExportAllLODs = false,
-			const bool& ExportSockets = false,
-			const bool& ExportColliders = false,
-			const bool& ExportMainMesh  = true,
-			const bool& bInputNodesCanBeDeleted = true,
-			const bool& bExportMaterialParameters = false);
-
-		// Actually exports the skeletal mesh data (mesh, skeleton ... ) to the newly created input node - returns true on success
-		static bool SetSkeletalMeshDataOnNode(
-			USkeletalMesh* SkeletalMesh,
-			USkeletalMeshComponent* SkeletalMeshComponent,
-			HAPI_NodeId& NewNodeId,
-			int32 LODIndex,
-			const bool& bAddLODGroup,
-			const bool bInExportMaterialParametersAsAttributes);
-
-
-
-
 		// Convert the Mesh using FStaticMeshLODResources
 		static bool CreateInputNodeForStaticMeshLODResources(
 			const HAPI_NodeId& NodeId,

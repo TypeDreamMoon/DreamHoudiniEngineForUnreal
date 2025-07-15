@@ -29,6 +29,7 @@
 #include "HoudiniAsset.h"
 #include "HoudiniEngineEditor.h"
 #include "HoudiniEngineEditorPrivatePCH.h"
+#include "HoudiniEngineEditorUtils.h"
 #include "HoudiniEngineStyle.h"
 #include "HoudiniPreset.h"
 #include "HoudiniToolsEditor.h"

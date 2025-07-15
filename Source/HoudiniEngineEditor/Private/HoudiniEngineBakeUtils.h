@@ -636,12 +636,11 @@ public:
 		UHoudiniOutput* CookedOutput,
 		const FHoudiniOutputObjectIdentifier& Identifier,
 		const UHoudiniAssetComponent* HoudiniAssetComponent,
-		FHoudiniBakedOutput& InBakedOutputs,
+		const FHoudiniBakedOutput& InPreviousBakedOutput,
+		FHoudiniBakedOutput& InNewBakedOutput,
 		const FDirectoryPath& InBakeFolder,
-		bool bInReplaceActors,
-		bool bInReplaceAssets,
-		TArray<UPackage*>& OutPackagesToSave,
-		FHoudiniEngineOutputStats& OutBakeStats);
+		const FHoudiniBakeSettings& BakeSettings,
+		FHoudiniBakedObjectData& BakedObjectData);
 
 	static UDataTable* CreateBakedDataTable(
 		UScriptStruct * UserDefinedStruct,
@@ -649,29 +648,26 @@ public:
 		UHoudiniOutput* CookedOutput,
 		const FHoudiniOutputObjectIdentifier& Identifier,
 		const UHoudiniAssetComponent* HoudiniAssetComponent,
-		FHoudiniBakedOutput& InBakedOutputs,
+		const FHoudiniBakedOutput& InPreviousBakedOutput,
+		FHoudiniBakedOutput& InNewBakedOutput,
 		const FDirectoryPath& InBakeFolder,
-		bool bInReplaceActors,
-		bool bInReplaceAssets,
-		TArray<UPackage*>& OutPackagesToSave,
-		FHoudiniEngineOutputStats& OutBakeStats);
+		const FHoudiniBakeSettings& BakeSettings,
+		FHoudiniBakedObjectData& BakedObjectData);
 
 
 	static bool BakeDataTables(
 		const UHoudiniAssetComponent* HoudiniAssetComponent,
 		int32 InOutputIndex,
 		const TArray<UHoudiniOutput*>& InAllOutputs,
-		TArray<FHoudiniBakedOutput>& InBakedOutputs,
+		FHoudiniEngineBakeState& InBakeState,
 		const FDirectoryPath& InBakeFolder,
 		const FDirectoryPath& InTempCookFolder,
-		bool bInReplaceActors,
-		bool bInReplaceAssets,
+		const FHoudiniBakeSettings& BakeSettings,
 		const TArray<FHoudiniEngineBakedActor>& InBakedActors,
 		TArray<FHoudiniEngineBakedActor>& OutActors,
-		TArray<UPackage*>& OutPackagesToSave,
+		FHoudiniBakedObjectData& BakedObjectData,
 		TMap<UStaticMesh*, UStaticMesh*>& InOutAlreadyBakedStaticMeshMap,
 		TMap<UMaterialInterface*, UMaterialInterface*>& InOutAlreadyBakedMaterialsMap,
-		FHoudiniEngineOutputStats& OutBakeStats,
 		AActor* InFallbackActor = nullptr,
 		const FString& InFallbackWorldOutlinerFolder = TEXT(""));
 
@@ -955,19 +951,18 @@ public:
 	// from these actors to the PDG link and moves the actors out of the parent Folder/ detaches from the parent
 	// PDG output actor.
 	static bool BakePDGAssetLinkOutputsKeepActors(
-					UHoudiniPDGAssetLink* InPDGAssetLink, 
-					EPDGBakeSelectionOption InBakeSelectionOption, 
-					EPDGBakePackageReplaceModeOption InPDGBakePackageReplaceMode, 
-					bool bInRecenterBakedActors);
+		UHoudiniPDGAssetLink* InPDGAssetLink, 
+		EPDGBakeSelectionOption InBakeSelectionOption, 
+		EPDGBakePackageReplaceModeOption InPDGBakePackageReplaceMode, 
+		bool bInRecenterBakedActors);
 
 	static bool BakePDGAssetLinkOutputsKeepActors(
-			UHoudiniPDGAssetLink* InPDGAssetLink,
-			EPDGBakeSelectionOption InBakeSelectionOption,
-			EPDGBakePackageReplaceModeOption InPDGBakePackageReplaceMode,
-			bool bInRecenterBakedActors,
-			TArray<UPackage*> & PackagesToSave,
-			FHoudiniEngineOutputStats & BakeStats,
-			TArray<FHoudiniEngineBakedActor> & BakedActors);
+		UHoudiniPDGAssetLink* InPDGAssetLink,
+		EPDGBakeSelectionOption InBakeSelectionOption,
+		EPDGBakePackageReplaceModeOption InPDGBakePackageReplaceMode,
+		bool bInRecenterBakedActors,
+		FHoudiniBakedObjectData& BakedObjectData,
+		TArray<FHoudiniEngineBakedActor> & BakedActors);
 
 	// Bake PDG output. This bakes all supported assets from all work items in the specified InNode (FTOPNode).
 	// It duplicates the output actors and bakes them to blueprints. Assets that were baked are removed from
@@ -1215,7 +1210,7 @@ public:
 	static void RemoveBakedLevelInstances(
 		UHoudiniAssetComponent* HoudiniAssetComponent, 
 		TArray<FHoudiniBakedOutput>& InBakedOutputs,
-		bool bReplaceActors);
+		const FHoudiniBakeSettings& BakeSettings);
 
 	static void DeleteBakedDataTableObjects(TArray<FHoudiniBakedOutput>& InBakedOutputs);
 

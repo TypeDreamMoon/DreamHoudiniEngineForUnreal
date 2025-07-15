@@ -173,8 +173,7 @@ TArray<FHoudiniEngineBakedActor> FHoudiniTestContext::BakeSelectedTopNetwork()
 {
 	UHoudiniPDGAssetLink * PDGAssetLink = HAC->GetPDGAssetLink();
 
-	TArray<UPackage*> PackagesToSave;
-	FHoudiniEngineOutputStats BakeStats;
+	FHoudiniBakedObjectData BakeOutputs;
 	TArray<FHoudiniEngineBakedActor> BakedActors;
 
 	FHoudiniEngineBakeUtils::BakePDGAssetLinkOutputsKeepActors(
@@ -182,8 +181,7 @@ TArray<FHoudiniEngineBakedActor> FHoudiniTestContext::BakeSelectedTopNetwork()
 		PDGAssetLink->PDGBakeSelectionOption, 
 		PDGAssetLink->PDGBakePackageReplaceMode, 
 		PDGAssetLink->bRecenterBakedActors,
-		PackagesToSave,
-		BakeStats,
+		BakeOutputs,
 		BakedActors);
 
 	return BakedActors;

@@ -343,7 +343,7 @@ FHoudiniOutputTranslator::UpdateOutputs(
 				FHoudiniMeshTranslator::CreateAllMeshesAndComponentsFromHoudiniOutput(
 					CurOutput, 
 					PackageParams, 
-					bIsProxyStaticMeshEnabled ? EHoudiniStaticMeshMethod::UHoudiniStaticMesh : HAC->StaticMeshMethod,
+					MeshMethod,
 					HAC->bSplitMeshSupport,
 					HAC->StaticMeshGenerationProperties,
 					HAC->StaticMeshBuildSettings,

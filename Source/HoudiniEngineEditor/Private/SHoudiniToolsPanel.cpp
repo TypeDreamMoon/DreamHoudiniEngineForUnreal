@@ -270,6 +270,9 @@ SHoudiniToolCategory::Construct(const FArguments& InArgs)
 	ShowEmptyCategory = InArgs._ShowEmptyCategory;
 	ShowHoudiniAssets = InArgs._ShowHoudiniAssets;
 	ShowPresets = InArgs._ShowPresets;
+	ShowHiddenTools = InArgs._ShowHiddenTools;
+	ToolContextMenuOpening = InArgs._OnToolContextMenuOpening;
+	CategoryContextMenuOpening = InArgs._OnCategoryContextMenuOpening;
 
 	const FText UserCategoryTooltip = FText::Format(LOCTEXT("HoudiniToolsPanel_UserCategoryTooltip", "{0} (User Category)"), FText::FromString(CategoryLabel));
 	const FText PackageCategoryTooltip = FText::Format( LOCTEXT("HoudiniToolsPanel_PackageCategoryTooltip", "{0} (Package Category)"), FText::FromString(CategoryLabel));
@@ -444,6 +447,16 @@ SHoudiniToolCategory::UpdateVisibleItems()
 	{
 		if (!HoudiniTool.IsValid())
 			continue;
+
+		if (ShowHiddenTools.Get() == false)
+		{
+			if (HoudiniTool->IsHiddenInCategory(GetCategoryLabel()))
+			{
+				// This tool should not be visible in this category
+				continue;
+			}
+		}
+		
 		if (HoudiniTool->PackageToolType == EHoudiniPackageToolType::HoudiniAsset && ShowHoudiniAssets.Get() == false)
 		{
 			// We don't want to show HoudiniAssets
@@ -3128,21 +3141,6 @@ SHoudiniToolsPanel::MakeTileViewWidget( TSharedPtr< FHoudiniTool > HoudiniTool, 
 		.DesiredSizeOverride(FVector2D(10.0f, 2.f))
 		);
 
-	// if (HoudiniTool->IsHiddenInCategory(CategoryName))
-	// {
-	// 	// Add an overlay to fade out the icon to visually indicate that it is hidden 
-	// 	IconOverlay->AddSlot()
-	// 	.HAlign(HAlign_Fill)
-	// 	.VAlign(VAlign_Fill)
-	// 	.Padding(FMargin(0.0f, 0.0f, 0.0f, 0.0f))
-	// 	.AttachWidget(
-	// 		SNew(SImage)
-	// 		.Image(&UnderlineBrush)
-	// 		.ColorAndOpacity( FSlateColor(FLinearColor(1.f, 1.f, 1.f, 0.5f)) )
-	// 		// .DesiredSizeOverride(FVector2D(10.0f, 2.f))
-	// 		);
-	// }
-
 	ContentBox->AddSlot()
 		.HAlign(EHorizontalAlignment::HAlign_Center)
 		.VAlign(EVerticalAlignment::VAlign_Center)
@@ -3459,40 +3457,43 @@ SHoudiniToolsPanel::ConstructHoudiniToolContextMenu()
 		);
 	}
 
-	if (ActiveTool->IsHiddenInCategory(ActiveCategoryName))
+	if (!bIsFavoritesCategory)
 	{
-		// The tool is already hidden in this category. Allow the user to 'show' this tool in this category.
-		// TODO: First check whether it's even possible to remove this tool from the exclusion list. If not, disable these options.
-		const FText HideLabel = LOCTEXT( "HoudiniTool_ContextMenu_ShowInPackageCategory", "Make Visible In Category" );
-		const FText HideTooltip = LOCTEXT( "HoudiniTool_ContextMenu_ShowInPackageCategoryTooltip", "Make this tool visible in the Package Category by removing it from the category exclusion list, if possible." );
-		MenuBuilder.AddMenuEntry(
-			HideLabel,
-			HideTooltip,
-			FSlateIcon( FHoudiniEngineStyle::GetStyleSetName(), "HoudiniEngine.HoudiniEngineLogo" ),
-			FUIAction(
-				FExecuteAction::CreateSP(this, &SHoudiniToolsPanel::ShowActiveToolInCategory ),
-				FCanExecuteAction::CreateLambda([&] { return IsActiveHoudiniToolEditable() && CanShowActiveToolInCategory(); } )
-			)
-		);
-	}
-	else
-	{
-		// Hide Tool from category
-		const FText HideLabel = CategoryType == EHoudiniToolCategoryType::Package ?
-			LOCTEXT( "HoudiniTool_ContextMenu_HideFromPackageCategory", "Hide From Category" ) :
-			LOCTEXT( "HoudiniTool_ContextMenu_RemoveFromPackageCategory", "Remove From Category" );
-		const FText HideTooltip = CategoryType == EHoudiniToolCategoryType::Package ?
-			LOCTEXT( "HoudiniTool_ContextMenu_HideFromPackageCategoryTooltip", "Hide the selected tool from this package category." ) :
-			LOCTEXT( "HoudiniTool_ContextMenu_RemoveFromPackageCategoryTooltip", "Remove the selected tool from this user category." );
-		MenuBuilder.AddMenuEntry(
-			HideLabel,
-			HideTooltip,
-			FSlateIcon( FHoudiniEngineStyle::GetStyleSetName(), "HoudiniEngine.HoudiniEngineLogo" ),
-			FUIAction(
-				FExecuteAction::CreateSP(this, &SHoudiniToolsPanel::HideActiveToolFromCategory ),
-				FCanExecuteAction::CreateLambda([&] { return IsActiveHoudiniToolEditable(); } )
-			)
-		);
+		if (ActiveTool->IsHiddenInCategory(ActiveCategoryName))
+		{
+			// The tool is already hidden in this category. Allow the user to 'show' this tool in this category.
+			// TODO: First check whether it's even possible to remove this tool from the exclusion list. If not, disable these options.
+			const FText HideLabel = LOCTEXT( "HoudiniTool_ContextMenu_ShowInPackageCategory", "Make Visible In Category" );
+			const FText HideTooltip = LOCTEXT( "HoudiniTool_ContextMenu_ShowInPackageCategoryTooltip", "Make this tool visible in the Package Category by removing it from the category exclusion list, if possible." );
+			MenuBuilder.AddMenuEntry(
+				HideLabel,
+				HideTooltip,
+				FSlateIcon( FHoudiniEngineStyle::GetStyleSetName(), "HoudiniEngine.HoudiniEngineLogo" ),
+				FUIAction(
+					FExecuteAction::CreateSP(this, &SHoudiniToolsPanel::ShowActiveToolInCategory ),
+					FCanExecuteAction::CreateLambda([this] { return IsActiveHoudiniToolEditable() && CanShowActiveToolInCategory(); } )
+				)
+			);
+		}
+		else
+		{
+			// Hide Tool from category
+			const FText HideLabel = CategoryType == EHoudiniToolCategoryType::Package ?
+				LOCTEXT( "HoudiniTool_ContextMenu_HideFromPackageCategory", "Hide From Category" ) :
+				LOCTEXT( "HoudiniTool_ContextMenu_RemoveFromPackageCategory", "Remove From Category" );
+			const FText HideTooltip = CategoryType == EHoudiniToolCategoryType::Package ?
+				LOCTEXT( "HoudiniTool_ContextMenu_HideFromPackageCategoryTooltip", "Hide the selected tool from this package category." ) :
+				LOCTEXT( "HoudiniTool_ContextMenu_RemoveFromPackageCategoryTooltip", "Remove the selected tool from this user category." );
+			MenuBuilder.AddMenuEntry(
+				HideLabel,
+				HideTooltip,
+				FSlateIcon( FHoudiniEngineStyle::GetStyleSetName(), "HoudiniEngine.HoudiniEngineLogo" ),
+				FUIAction(
+					FExecuteAction::CreateSP(this, &SHoudiniToolsPanel::HideActiveToolFromCategory ),
+					FCanExecuteAction::CreateLambda([this] { return IsActiveHoudiniToolEditable(); } )
+				)
+			);
+		}
 	}
 
 	// Add To User Category
@@ -4695,6 +4696,7 @@ SHoudiniToolsPanel::RebuildCategories()
 	{
 		FilterCategoryList.Add(Category.Name);
 		FString CategoryName = Category.Name;
+		EHoudiniToolCategoryType CategoryType = Category.CategoryType;
 		
 		// Add Category view widget
 		TSharedPtr<FHoudiniToolList> CategorizedTools = CategoriesToolsMap.FindChecked(Category);
@@ -4720,7 +4722,14 @@ SHoudiniToolsPanel::RebuildCategories()
 				} )
 			.OnToolSelectionChanged( this, &SHoudiniToolsPanel::OnToolSelectionChanged )
 			.OnMouseButtonDoubleClick( this, &SHoudiniToolsPanel::OnDoubleClickedListViewWidget )
-			.OnContextMenuOpening(this, &SHoudiniToolsPanel::ConstructHoudiniToolContextMenu )
+			.OnToolContextMenuOpening_Lambda([this, CategoryName, CategoryType]()
+			{
+				return ConstructHoudiniToolContextMenu();
+			})
+			.OnCategoryContextMenuOpening_Lambda([this, CategoryName, CategoryType]()
+			{
+				return ConstructCategoryContextMenu(CategoryName, CategoryType);
+			})
 			.IsVisible_Lambda([&, Category](){ return !FilterHiddenCategories.Contains(Category.Name); })
 			.ShowHiddenTools_Lambda([this]() -> bool { return bShowHiddenTools; })
 		];

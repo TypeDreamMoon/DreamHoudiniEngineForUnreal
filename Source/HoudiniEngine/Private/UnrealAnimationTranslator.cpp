@@ -102,15 +102,7 @@ FUnrealAnimationTranslator::HapiCreateInputNodeForAnimation(
 	HAPI_NodeId ParentNodeId = -1;
 	{
 		// Creates this input's identifier and input options
-		bool bDefaultImportAsReference = false;
-		bool bDefaultImportAsReferenceRotScaleEnabled = false;
-		const FUnrealObjectInputOptions Options(
-			bDefaultImportAsReference,
-			bDefaultImportAsReferenceRotScaleEnabled,
-			false,
-			false,
-			false);
-
+		const FUnrealObjectInputOptions Options;
 		Identifier = FUnrealObjectInputIdentifier(Animation, Options, true);
 
 		FUnrealObjectInputHandle Handle;
@@ -138,6 +130,19 @@ FUnrealAnimationTranslator::HapiCreateInputNodeForAnimation(
 
 		// We now need to create the nodes (since we couldn't find existing ones in the manager)
 		// To do that, we can simply continue this function
+
+		// Set InputNodeId to the current NodeId associated with Handle, since that is what we are replacing.
+		// (Option changes could mean that InputNodeId is associated with a completely different entry, albeit for
+		// the same asset, in the manager)
+		if (Handle.IsValid())
+		{
+			if (!FUnrealObjectInputUtils::GetHAPINodeId(Handle, InputNodeId))
+				InputNodeId = -1;
+		}
+		else
+		{
+			InputNodeId = -1;
+		}
 	}
 
 	// Node ID for the newly created node
@@ -533,7 +538,11 @@ FUnrealAnimationTranslator::AddBoneTracksToNode(HAPI_NodeId& NewNodeId, UAnimSeq
 			for (const FFloatCurve& Curve : FloatCurves)
 			{
 				float Sample = Curve.Evaluate(SampleTime);
+#if ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION >= 3
 				JSONObject->SetNumberField(Curve.GetName().ToString(), Sample);
+#else
+				JSONObject->SetNumberField(Curve.Name.DisplayName.ToString(), Sample);
+#endif
 			}
 			
 			FbxCustomAttributes[DataIndex] = FHoudiniEngineUtils::JSONToString(JSONObject);
@@ -893,5 +902,4 @@ FUnrealAnimationTranslator::AddBoneTracksToNode(HAPI_NodeId& NewNodeId, UAnimSeq
 #endif
 	return true;
 }
-
 

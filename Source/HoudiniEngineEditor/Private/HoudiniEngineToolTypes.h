@@ -202,6 +202,21 @@ struct FHoudiniTool
 		return nullptr;
 	}
 
+	UClass* GetAssetObjectClass() const
+	{
+		switch (PackageToolType)
+		{
+			case EHoudiniPackageToolType::HoudiniAsset:
+				return UHoudiniAsset::StaticClass();
+				break;
+			case EHoudiniPackageToolType::Preset:
+				return UHoudiniPreset::StaticClass();
+				break;
+			default: ;
+		}
+		return nullptr;
+	}
+
 	bool IsHiddenInCategory(const FString& CategoryName) const { return ExcludedFromCategories.Contains(CategoryName); }
 
 	/** The Houdini Asset used by the tool **/ 
@@ -248,7 +263,6 @@ struct FHoudiniToolList
 	// Set of unique packages collected from the tools in this list. 
 	TSet<TSoftObjectPtr<UHoudiniToolsPackageAsset>> Packages;
 };
-
 
 
 

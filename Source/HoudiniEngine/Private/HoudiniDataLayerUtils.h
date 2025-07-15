@@ -67,7 +67,15 @@ public:
 	static TArray<FHoudiniAttributeDataLayer> GetDataLayers(HAPI_NodeId NodeId, HAPI_PartId PartId, HAPI_GroupType GroupType);
 
 	// Using this cache, create Houdini Groups for this Actor.
-	static bool AddGroupsFromDataLayers(AActor* Actor, HAPI_NodeId NodeId, HAPI_PartId PartId);
+	static HAPI_NodeId AddGroupsFromDataLayers(AActor* Actor, HAPI_NodeId ParentNodeId, HAPI_NodeId InputNodeId);
+
+	static HAPI_NodeId CreateGroupNode(HAPI_NodeId ParentNode, HAPI_NodeId InputNode, const FString & GorupName);
+
+	static TArray<FString> GetHoudiniGroupNames(AActor* Actor);
+
+	static TArray<FHoudiniUnrealDataLayerInfo> GetDataLayerInfoForActor(AActor* Actor);
+
+	static bool SetVexCode(HAPI_NodeId VexNodeId, AActor* Actor);
 
 #if HOUDINI_ENABLE_DATA_LAYERS
 	static void AddActorToLayer(const FHoudiniPackageParams& Params, AWorldDataLayers* WorldDataLayers, AActor* Actor, const FHoudiniDataLayer& Layer);
@@ -85,4 +93,3 @@ public:
 
 
 };
-

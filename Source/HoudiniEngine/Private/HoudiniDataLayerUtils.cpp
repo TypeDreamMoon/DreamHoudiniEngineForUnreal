@@ -40,6 +40,8 @@
 
 #if HOUDINI_ENABLE_DATA_LAYERS
 #include "WorldPartition/DataLayer/DataLayerAsset.h"
+#endif
+
 #if WITH_EDITOR
 //#include "DataLayer/DataLayerEditorSubsystem.h"
 #endif
@@ -276,7 +278,7 @@ FHoudiniDataLayerUtils::CreateDataLayerAsset(const FHoudiniPackageParams& Params
 }
 #endif
 
-#if HOUDINI_ENABLE_DATA_LAYERS
+
 TArray<FHoudiniUnrealDataLayerInfo>
 FHoudiniDataLayerUtils::GetDataLayerInfoForActor(AActor* Actor)
 {
@@ -296,18 +298,45 @@ FHoudiniDataLayerUtils::GetDataLayerInfoForActor(AActor* Actor)
 	return Results;
 
 }
-#endif
+
+HAPI_NodeId
+FHoudiniDataLayerUtils::AddGroupsFromDataLayers(AActor* Actor, HAPI_NodeId ParentNodeId, HAPI_NodeId InputNodeId)
+{
+	HAPI_NodeId VexNodeId;
+
+	// Create a group node.
+	HOUDINI_CHECK_ERROR_RETURN(FHoudiniApi::CreateNode(FHoudiniEngine::Get().GetSession(),
+			ParentNodeId,
+			"attribwrangle",
+			"data_layers",
+			false,
+			&VexNodeId),
+		-1);
+
+	// Hook the new node up to the input node.
+	HOUDINI_CHECK_ERROR_RETURN(FHoudiniApi::ConnectNodeInput(FHoudiniEngine::Get().GetSession(), VexNodeId, 0, InputNodeId, 0), false);
+
+	SetVexCode(VexNodeId, Actor);
+
+	return VexNodeId;
+}
 
 bool
-FHoudiniDataLayerUtils::AddGroupsFromDataLayers(AActor* Actor, HAPI_NodeId NodeId, HAPI_PartId PartId)
+FHoudiniDataLayerUtils::SetVexCode(HAPI_NodeId VexNodeId, AActor* Actor)
 {
-#if HOUDINI_ENABLE_DATA_LAYERS
-	TArray<FHoudiniUnrealDataLayerInfo> LayerInfos = GetDataLayerInfoForActor(Actor);
+	auto DataLayers = FHoudiniDataLayerUtils::GetDataLayerInfoForActor(Actor);
 
-	TArray<FName> GroupNames;
-	for (auto & LayerInfo : LayerInfos)
+	FString VexCode;
+
+	for (auto& DataLayer : DataLayers)
 	{
-		FString PrefixedName = FString(HOUDINI_DATA_LAYER_PREFIX) + LayerInfo.Name;
+		FString PrefixedName = FString(HOUDINI_DATA_LAYER_PREFIX) + DataLayer.Name;
+
+		const FString VexLine = FString::Format(TEXT("setprimgroup(0,\"{0}\", @primnum,1);\n"), { PrefixedName });
+		VexCode += VexLine;
+	}
+	// Set the wrangle's class to prims
+	HOUDINI_CHECK_ERROR_RETURN(FHoudiniApi::SetParmIntValue(FHoudiniEngine::Get().GetSession(), VexNodeId, "class", 0, 1), false);
 
 	// Set the snippet parameter to the VEXpression.
 	HAPI_ParmInfo ParmInfo;
@@ -320,9 +349,5 @@ FHoudiniDataLayerUtils::AddGroupsFromDataLayers(AActor* Actor, HAPI_NodeId NodeI
 	{
 		HOUDINI_LOG_WARNING(TEXT("Invalid Parameter: %s"), *FHoudiniEngineUtils::GetErrorDescription());
 	}
-	bool bSuccess = FHoudiniEngineUtils::CreateGroupsFromTags(NodeId, PartId, GroupNames);
-	return bSuccess;
-#else
 	return true;
-#endif
 }

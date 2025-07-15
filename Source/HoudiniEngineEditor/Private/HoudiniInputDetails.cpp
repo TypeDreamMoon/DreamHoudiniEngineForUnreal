@@ -2039,10 +2039,6 @@ FHoudiniInputDetails::AddExportSelectedLandscapesOnlyCheckBox(
 
 			return MainInput->IsPaintLayerPerEditLayerExportEnabled() ? ECheckBoxState::Checked : ECheckBoxState::Unchecked;
 		})
-		.IsEnabled_Lambda([MainInput]()
-		{
-			return !MainInput->IsExportCombinedHeightOnlyEnabled();
-		})
 		.OnCheckStateChanged_Lambda([InInputs, MainInput](ECheckBoxState NewState)
 		{
 			if (!IsValidWeakPointer(MainInput))
